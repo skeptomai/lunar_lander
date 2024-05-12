@@ -1,11 +1,14 @@
 #![allow(dead_code)]
+use std::thread::sleep;
+
 use macroquad::prelude::*;
 use rusty_audio::Audio;
-
 use macroquad_text::Fonts;
 
-const GLASS_TTY_VT220: &[u8] = include_bytes!("../assets/fonts/Glass_TTY_VT220.ttf");
 
+const GLASS_TTY_VT220: &[u8] = include_bytes!("../assets/fonts/Glass_TTY_VT220.ttf");
+const MAX_ACCEL_Y: f32 = 1.5;
+const MILLIS_DELAY: u64 = 16;
 #[derive(Debug)]
 struct Line {
     start: Vec2,
@@ -42,7 +45,8 @@ struct Entity<'a> {
     surface: Vec<Line>,
     physics: Option<Physics>,
     renderer_lander: Option<Renderer>,
-    renderer_lander_accel: Option<Renderer>,    
+    renderer_lander_accel: Option<Renderer>,
+    renderer_lander_high_accel: Option<Renderer>,    
     input: Option<Input>,
     collision: Option<Collision>,
 }
@@ -59,7 +63,8 @@ impl<'a> Entity<'a> {
             surface: Vec::<Line>::new(),
             physics: None,
             renderer_lander: None,
-            renderer_lander_accel: None,            
+            renderer_lander_accel: None,
+            renderer_lander_high_accel: None,
             input: None,
             collision: None,
         }
@@ -70,16 +75,24 @@ impl<'a> Entity<'a> {
 fn update_physics(entities: &mut Vec<Entity>) {
     for entity in entities {
         if let Some(physics) = &mut entity.physics {
-            physics.velocity += physics.acceleration * get_frame_time();
+            //BUGBUG: This is not correct physics
+            physics.velocity -= physics.acceleration * get_frame_time();
             entity.transform.position += physics.velocity * get_frame_time();
+            entity.transform.position.x = entity.transform.position.x.rem_euclid(screen_width());
+            entity.transform.position.y = entity.transform.position.y.rem_euclid(screen_height());
         }
     }
 }
 
 fn render(entities: &Vec<Entity>) {
     for entity in entities {
-        let o_renderer = if entity.physics.as_ref().unwrap().acceleration.y != 0.0 {
-            &entity.renderer_lander_accel
+        let accel_y = entity.physics.as_ref().unwrap().acceleration.y;
+        let o_renderer = if accel_y != 0.0 {
+            if accel_y > MAX_ACCEL_Y {
+                &entity.renderer_lander_high_accel
+            } else {
+                &entity.renderer_lander_accel
+            }
         } else {
             &entity.renderer_lander
         };
@@ -96,12 +109,15 @@ fn render(entities: &Vec<Entity>) {
                             }
 
             );
-            // Draw each line segment from the vector
-            for line in &entity.surface {
-                draw_line(line.start.x, line.start.y, line.end.x, line.end.y, 1.0, macroquad::color::WHITE);
-            }
+            //draw_surface(entity);
             draw_text(&entity.screen_fonts);
         }
+    }
+}
+
+fn draw_surface(entity: &Entity) {
+    for line in &entity.surface {
+        draw_line(line.start.x, line.start.y, line.end.x, line.end.y, 1.0, WHITE);
     }
 }
 
@@ -144,16 +160,17 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         // Handle input
         if is_key_down(KeyCode::Right) {
             // rotate lander right
-            lander.transform.rotation = (lander.transform.rotation + 15.).rem_euclid(360.0) as f32;    
+            lander.transform.rotation = (lander.transform.rotation + 5.).rem_euclid(360.0) as f32;    
         }
         if is_key_down(KeyCode::Left) {
             // rotate lander left
-            lander.transform.rotation = (lander.transform.rotation - 15.).rem_euclid(360.0) as f32;    
+            lander.transform.rotation = (lander.transform.rotation - 5.).rem_euclid(360.0) as f32;    
         }
         if is_key_down(KeyCode::Up){
             // accelerate lander
             let angle = lander.transform.rotation.to_radians();
-            let acceleration = vec2(0.0, 0.1);
+            let phys_accel = lander.physics.as_mut().unwrap().acceleration;
+            let acceleration = phys_accel + vec2(0.0, 0.1);
             let acceleration = vec2(acceleration.x * angle.cos() - acceleration.y * angle.sin(),
                                     acceleration.x * angle.sin() + acceleration.y * angle.cos());
             lander.physics.as_mut().unwrap().acceleration = acceleration;
@@ -184,6 +201,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     // Load a texture (replace "texture.png" with the path to your texture)
     let lander = load_texture("assets/images/lander.png").await.expect("Failed to load texture");
     let lander_accel = load_texture("assets/images/lander-accel.png").await.expect("Failed to load texture");
+    let lander_high_accel = load_texture("assets/images/lander-high-accel.png").await.expect("Failed to load texture");    
 
     // Get the size of the texture
     let lander_texture_size = lander.size().mul_add(Vec2::new(0.5, 0.5), Vec2::new(0.0, 0.0));
@@ -212,7 +230,10 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         }),
         renderer_lander_accel: Some(Renderer {
             texture: lander_accel,
-        }),        
+        }),
+        renderer_lander_high_accel: Some(Renderer {
+            texture: lander_high_accel,
+        }),
         input: Some(Input),
         collision: Some(Collision {
             collider: Rect::new(0.0, 0.0, 64.0, 64.0), // Adjust collider size as needed
@@ -251,6 +272,9 @@ async fn main() {
         render(&entities);
 
         update_audio(&mut audio);
+
+        // Pause for the next frame
+        sleep(std::time::Duration::from_millis(MILLIS_DELAY));
 
         next_frame().await
     }
