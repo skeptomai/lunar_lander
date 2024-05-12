@@ -2,6 +2,10 @@
 use macroquad::prelude::*;
 use rusty_audio::Audio;
 
+use macroquad_text::Fonts;
+
+const GLASS_TTY_VT220: &[u8] = include_bytes!("../assets/fonts/Glass_TTY_VT220.ttf");
+
 use std::{thread, time};
 
 // Define components
@@ -91,6 +95,11 @@ fn render(entities: &Vec<Entity>) {
 // Main game loop
 #[macroquad::main("Lunar Lander")]
 async fn main() {
+
+    let mut fonts = Fonts::default();
+  
+    fonts.load_font_from_bytes("Glass VT200", GLASS_TTY_VT220).unwrap();
+
     let mut audio = Audio::new();
     audio.add("ambient", "218883-jet_whine_v2_mid_loop.wav"); 
     audio.add("acceleration", "218837-jet_turbine_main_blast.wav"); 
@@ -129,6 +138,14 @@ async fn main() {
 
     loop {
         clear_background(BLACK);
+
+        fonts.draw_text("SCORE", 20.0, 0.0, 15, Color::from([1.0; 4]));
+        fonts.draw_text("TIME", 20.0, 20.0, 15, Color::from([1.0; 4]));
+        fonts.draw_text("FUEL", 20.0, 40.0, 15, Color::from([1.0; 4]));
+
+        fonts.draw_text("ALTITUDE", 500.0, 0.0, 15, Color::from([1.0; 4]));
+        fonts.draw_text("HORIZONTAL SPEED", 500.0, 20.0, 15, Color::from([1.0; 4]));
+        fonts.draw_text("VERTICAL SPEED", 500.0, 40.0, 15, Color::from([1.0; 4]));
 
         // Update systems
         update_physics(&mut entities);
