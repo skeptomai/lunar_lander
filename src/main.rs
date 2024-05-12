@@ -70,7 +70,7 @@ fn update_physics(entities: &mut Vec<Entity>) {
 
 fn render(entities: &Vec<Entity>) {
     for entity in entities {
-        let o_renderer = if entity.physics.as_ref().unwrap().acceleration.y > 0.0 {
+        let o_renderer = if entity.physics.as_ref().unwrap().acceleration.y != 0.0 {
             &entity.renderer_lander_accel
         } else {
             &entity.renderer_lander
@@ -110,8 +110,8 @@ async fn main() {
     let lander_accel = load_texture("lander-accel.png").await.expect("Failed to load texture");
 
     // Get the size of the texture
-    let lander_tex_size = lander.size();
-
+    let lander_tex_size = lander.size().mul_add(Vec2::new(0.5, 0.5), Vec2::new(0.0, 0.0));
+    
     // Create entities
     let lander = Entity {
         transform: Transform {
@@ -143,9 +143,11 @@ async fn main() {
         fonts.draw_text("TIME", 20.0, 20.0, 15, Color::from([1.0; 4]));
         fonts.draw_text("FUEL", 20.0, 40.0, 15, Color::from([1.0; 4]));
 
-        fonts.draw_text("ALTITUDE", 500.0, 0.0, 15, Color::from([1.0; 4]));
-        fonts.draw_text("HORIZONTAL SPEED", 500.0, 20.0, 15, Color::from([1.0; 4]));
-        fonts.draw_text("VERTICAL SPEED", 500.0, 40.0, 15, Color::from([1.0; 4]));
+        let w = macroquad::window::screen_width();
+        let right_text_start = w - 175.0;
+        fonts.draw_text("ALTITUDE", right_text_start, 0.0, 15, Color::from([1.0; 4]));
+        fonts.draw_text("HORIZONTAL SPEED", right_text_start, 20.0, 15, Color::from([1.0; 4]));
+        fonts.draw_text("VERTICAL SPEED", right_text_start, 40.0, 15, Color::from([1.0; 4]));
 
         // Update systems
         update_physics(&mut entities);
