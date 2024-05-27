@@ -10,7 +10,7 @@ const GLASS_TTY_VT220: &[u8] = include_bytes!("../assets/fonts/Glass_TTY_VT220.t
 const MAX_ACCEL_X: f32 = 150.0;
 const MAX_ACCEL_Y: f32 = 150.0;
 const MILLIS_DELAY: u64 = 40;
-const ROTATION_INCREMENT: f32 = 2.0;
+const ROTATION_INCREMENT: f32 = 4.0;
 const ACCEL_INCREMENT: f32 = 6.5;
 const FULL_CIRCLE_DEGREES: f32 = 360.0;
 const TEXTURE_SCALE_X: f32 = 0.5;
@@ -55,6 +55,7 @@ struct Entity<'a> {
     renderer_lander_high_accel: Option<Renderer>,    
     input: Option<Input>,
     collision: Option<Collision>,
+    show_stats: bool
 }
 
 impl<'a> Entity<'a> {
@@ -73,6 +74,7 @@ impl<'a> Entity<'a> {
             renderer_lander_high_accel: None,
             input: None,
             collision: None,
+            show_stats: false
         }
     }
 }
@@ -107,11 +109,12 @@ fn render(entities: &Vec<Entity>) {
             let vel_x = phys.velocity.x;
             let vel_y = phys.velocity.y;
 
-             
-            let mut text = format!("x: {:.2}, y: {:.2}, angle: {:.2}", x, y, angle_degrees);
-            entity.screen_fonts.draw_text(&text, 0.0, 480.0, 10.0, Color::from([1.0; 4]));            
-            text = format!("accel_x: {:.2}, accel_y: {:.2}, accel_length: {:.2}, vel_x: {:.2}, vel_y: {:.2}", accel_x, accel_y, accel.length(), vel_x, vel_y);
-            entity.screen_fonts.draw_text(&text, 0.0, 510.0, 10.0, Color::from([1.0; 4]));
+            if entity.show_stats {
+                let mut text = format!("x: {:.2}, y: {:.2}, angle: {:.2}", x, y, angle_degrees);
+                entity.screen_fonts.draw_text(&text, 5.0, screen_height()-40.0, 10.0, Color::from([1.0; 4]));            
+                text = format!("accel_x: {:.2}, accel_y: {:.2}, accel_length: {:.2}, vel_x: {:.2}, vel_y: {:.2}", accel_x, accel_y, accel.length(), vel_x, vel_y);
+                entity.screen_fonts.draw_text(&text, 5.0, screen_height()-20.0, 10.0, Color::from([1.0; 4]));
+            }
          
         // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
         let accel = phys.acceleration;
@@ -191,6 +194,9 @@ fn draw_text(fonts: &Fonts) {
 
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         // Handle input
+        if is_key_released(KeyCode::S) {
+            lander.show_stats = !lander.show_stats;
+        }
         if is_key_down(KeyCode::Right) {
             println!("Right key down before: {:.2}", lander.transform.rotation);
             // rotate lander right
@@ -284,7 +290,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         transform: Transform {
             size: lander_texture_size,
             position: transform_axes(tex_center),
-            rotation: 0.0,
+            rotation: 90.0,
         },
         screen_fonts: fonts,
         surface: lines,
@@ -305,6 +311,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         collision: Some(Collision {
             collider: Rect::new(0.0, 0.0, 64.0, 64.0), // Adjust collider size as needed
         }),
+        show_stats: false
     };
 
     entities.push(lander); 
