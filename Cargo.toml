@@ -6,9 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# quad-snd = {version = "0.2.7", optional = true}
-macroquad = {version = "0.4.5", default-features = false}
-macroquad-text = {version = "0.2.0", default-features = false}
+macroquad = {path = "../macroquad", default-features = false}
+macroquad-text = {path = "../macroquad-text", default-features = false}
 rusty_audio = {path = "../rusty_audio"}
 
 [features]

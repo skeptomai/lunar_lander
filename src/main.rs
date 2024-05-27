@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_imports)]
 use std::thread::sleep;
 
 use macroquad::prelude::*;
@@ -6,11 +7,11 @@ use rusty_audio::Audio;
 use macroquad_text::Fonts;
 
 const GLASS_TTY_VT220: &[u8] = include_bytes!("../assets/fonts/Glass_TTY_VT220.ttf");
-const MAX_ACCEL_X: f32 = 1.5;
-const MAX_ACCEL_Y: f32 = 1.5;
-const MILLIS_DELAY: u64 = 75;
+const MAX_ACCEL_X: f32 = 150.0;
+const MAX_ACCEL_Y: f32 = 150.0;
+const MILLIS_DELAY: u64 = 40;
 const ROTATION_INCREMENT: f32 = 2.0;
-const ACCEL_INCREMENT: f32 = 0.25;
+const ACCEL_INCREMENT: f32 = 6.5;
 const FULL_CIRCLE_DEGREES: f32 = 360.0;
 const TEXTURE_SCALE_X: f32 = 0.5;
 const TEXTURE_SCALE_Y: f32 = 0.5;
@@ -81,8 +82,8 @@ fn update_physics(entities: &mut Vec<Entity>) {
     for entity in entities {
         if let Some(physics) = &mut entity.physics {
             //BUGBUG: This is not correct physics
-            physics.velocity.x = physics.acceleration.x * get_frame_time();
-            physics.velocity.y = physics.acceleration.y * get_frame_time();            
+            physics.velocity.x = physics.velocity.x + physics.acceleration.x * get_frame_time();
+            physics.velocity.y = physics.velocity.y + physics.acceleration.y * get_frame_time();            
             entity.transform.position += physics.velocity * get_frame_time();
             entity.transform.position.x = entity.transform.position.x.rem_euclid(screen_width());
             entity.transform.position.y = entity.transform.position.y.rem_euclid(screen_height());
@@ -91,8 +92,12 @@ fn update_physics(entities: &mut Vec<Entity>) {
 }
 
 fn render(entities: &Vec<Entity>) {
+    let camera = configure_camera();
+    
     for entity in entities {
+        set_default_camera();
         if let Some(phys) = &entity.physics {
+
             let x = entity.transform.position.x;
             let y = entity.transform.position.y;
             let angle_degrees = entity.transform.rotation;
@@ -102,12 +107,14 @@ fn render(entities: &Vec<Entity>) {
             let vel_x = phys.velocity.x;
             let vel_y = phys.velocity.y;
 
+             
             let mut text = format!("x: {:.2}, y: {:.2}, angle: {:.2}", x, y, angle_degrees);
-            entity.screen_fonts.draw_text(&text, 0.0, 450.0, 20, Color::from([1.0; 4]));            
+            entity.screen_fonts.draw_text(&text, 0.0, 480.0, 10.0, Color::from([1.0; 4]));            
             text = format!("accel_x: {:.2}, accel_y: {:.2}, accel_length: {:.2}, vel_x: {:.2}, vel_y: {:.2}", accel_x, accel_y, accel.length(), vel_x, vel_y);
-            entity.screen_fonts.draw_text(&text, 0.0, 480.0, 20, Color::from([1.0; 4]));
-        
+            entity.screen_fonts.draw_text(&text, 0.0, 510.0, 10.0, Color::from([1.0; 4]));
+         
         // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
+        let accel = phys.acceleration;
         let o_renderer = if accel.length() > 0.0 {
             if accel.length() > 1.0 {
                 &entity.renderer_lander_high_accel
@@ -119,6 +126,7 @@ fn render(entities: &Vec<Entity>) {
         };
         
         if let Some(renderer) = o_renderer {
+            set_camera(&camera);
             draw_texture_ex(&renderer.texture,
                             entity.transform.position.x,
                             entity.transform.position.y,
@@ -133,6 +141,7 @@ fn render(entities: &Vec<Entity>) {
 
             );
             //draw_surface(entity);
+            set_default_camera();
             draw_text(&entity.screen_fonts);
         }
     }
@@ -165,19 +174,19 @@ fn define_surface(screen_height: f32, _screen_width: f32) -> Vec<Line> {
 }
 
 fn draw_text(fonts: &Fonts) {
-    fonts.draw_text("SCORE", 20.0, 0.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("TIME", 20.0, 20.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("FUEL", 20.0, 40.0, 15, Color::from([1.0; 4]));
+    fonts.draw_text("SCORE", 20.0, 0.0, 15.0, Color::from([1.0; 4]));
+    fonts.draw_text("TIME", 20.0, 20.0, 15.0, Color::from([1.0; 4]));
+    fonts.draw_text("FUEL", 20.0, 40.0, 15.0, Color::from([1.0; 4]));
 
     let w = macroquad::window::screen_width();
     let right_text_start = w - 175.0;
-    fonts.draw_text("ALTITUDE", right_text_start, 0.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("HORIZONTAL SPEED", right_text_start, 20.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("VERTICAL SPEED", right_text_start, 40.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("0,0", 0.0, 0.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("X_MAX,0", screen_width()-60.0, 0.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("0,Y_MAX", 0.0, screen_height()-20.0, 15, Color::from([1.0; 4]));
-    fonts.draw_text("X_MAX,Y_MAX", screen_width()-90.0, screen_height()-20.0, 15, Color::from([1.0; 4]));
+    fonts.draw_text("ALTITUDE", right_text_start, 0.0, 15.0, Color::from([1.0; 4]));
+    fonts.draw_text("HORIZONTAL SPEED", right_text_start, 20.0, 15.0, Color::from([1.0; 4]));
+    fonts.draw_text("VERTICAL SPEED", right_text_start, 40.0, 15.0, Color::from([1.0; 4]));
+    //fonts.draw_text("0,0", 0.0, 0.0, 15.0, Color::from([1.0; 4]));
+    //fonts.draw_text("X_MAX,0", screen_width()-60.0, 0.0, 15.0, Color::from([1.0; 4]));
+    //fonts.draw_text("0,Y_MAX", 0.0, screen_height()-20.0, 15.0, Color::from([1.0; 4]));
+    //fonts.draw_text("X_MAX,Y_MAX", screen_width()-90.0, screen_height()-20.0, 15.0, Color::from([1.0; 4]));
 }
 
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
@@ -185,13 +194,13 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         if is_key_down(KeyCode::Right) {
             println!("Right key down before: {:.2}", lander.transform.rotation);
             // rotate lander right
-            lander.transform.rotation = (lander.transform.rotation + ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
+            lander.transform.rotation = (lander.transform.rotation - ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
             println!("Right key down after: {:.2}", lander.transform.rotation);
         }
         if is_key_down(KeyCode::Left) {
             println!("Left key down before: {:.2}", lander.transform.rotation);
             // rotate lander left
-            lander.transform.rotation = (lander.transform.rotation - ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
+            lander.transform.rotation = (lander.transform.rotation + ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
             println!("Left key down after: {:.2}", lander.transform.rotation);
         }
         if is_key_down(KeyCode::Up){
@@ -240,6 +249,18 @@ fn transform_axes(position: Vec2) -> Vec2 {
 
 fn rotate_axes(rotation: f32) -> f32 {
     rotation.rem_euclid(FULL_CIRCLE_DEGREES)
+}
+
+fn configure_camera() -> Camera2D {
+    let screen_width = screen_width();
+    let screen_height = screen_height();
+
+    // Create a Camera2D with the standard x, y axes orientation
+    Camera2D {
+        zoom: vec2(2.0 / screen_width, -2.0 / screen_height), // Invert y-axis
+        target: vec2(screen_width / 2.0, screen_height / 2.0),
+        ..Default::default()
+    }
 }
 
 async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
@@ -296,18 +317,49 @@ fn update_audio(audio: &mut Audio) {
     }        
 }
 
-// Main game loop
+/* #[macroquad::main("Standard Axes Orientation")]
+async fn main() {
+    let camera = configure_camera();
+    let fonts = load_fonts();
+    loop {
+        // Set the camera
+        set_camera(&camera);
+
+        clear_background(WHITE);
+
+        // Draw a coordinate system for demonstration
+        draw_line(0.0, screen_height() / 2.0, screen_width(), screen_height() / 2.0, 2.0, BLACK); // x-axis
+        draw_line(screen_width() / 2.0, 0.0, screen_width() / 2.0, screen_height(), 2.0, BLACK); // y-axis
+
+        // Draw some shapes
+        draw_circle(screen_width() / 2.0, screen_height() / 2.0, 30.0, RED); // center circle
+        fonts.draw_text("Center", screen_width() / 2.0 + 40.0, screen_height() / 2.0, 30, DARKGRAY);
+
+        draw_circle(screen_width() / 2.0, screen_height() / 4.0, 20.0, BLUE); // top circle
+        fonts.draw_text("Top", screen_width() / 2.0 + 30.0, screen_height() / 4.0, 30, DARKGRAY);
+
+        draw_circle(screen_width() / 4.0, screen_height() / 2.0, 20.0, GREEN); // left circle
+        fonts.draw_text("Left", screen_width() / 4.0, screen_height() / 2.0 + 30.0, 30, DARKGRAY);
+
+        // Reset to the default camera before ending the frame
+        set_default_camera();
+
+        next_frame().await;
+    }
+}
+ */
+
+ // Main game loop
 #[macroquad::main("Lunar Lander")]
 async fn main() {
 
     let mut audio = load_audio();
-
     let mut entities = Vec::new();
     add_lander_entity(&mut entities).await;
 
     loop {
         clear_background(BLACK);
- 
+
         // Update systems
         update_physics(&mut entities);
 
@@ -327,4 +379,3 @@ async fn main() {
         next_frame().await
     }
 }
-
