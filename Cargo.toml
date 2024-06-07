@@ -9,6 +9,9 @@ edition = "2021"
 macroquad = {path = "../macroquad", default-features = false}
 macroquad-text = {path = "../macroquad-text", default-features = false}
 rusty_audio = {path = "../rusty_audio"}
+noise = "0.7"
+plotters = "0.3"
+rand = "0.8"
 
 [features]
 audio = []

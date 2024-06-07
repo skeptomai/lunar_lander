@@ -6,6 +6,8 @@ use macroquad::prelude::*;
 use rusty_audio::Audio;
 use macroquad_text::Fonts;
 
+mod surface;
+
 const GLASS_TTY_VT220: &[u8] = include_bytes!("../assets/fonts/Glass_TTY_VT220.ttf");
 const MAX_ACCEL_X: f32 = 150.0;
 const MAX_ACCEL_Y: f32 = 150.0;
@@ -48,7 +50,6 @@ struct Collision {
 struct Entity<'a> {
     transform: Transform,
     screen_fonts: Fonts<'a>,
-    surface: Vec<Line>,
     physics: Option<Physics>,
     renderer_lander: Option<Renderer>,
     renderer_lander_accel: Option<Renderer>,
@@ -67,7 +68,6 @@ impl<'a> Entity<'a> {
                 rotation: 0.0,
             },
             screen_fonts: Fonts::<'a>::default(),
-            surface: Vec::<Line>::new(),
             physics: None,
             renderer_lander: None,
             renderer_lander_accel: None,
@@ -143,37 +143,11 @@ fn render(entities: &Vec<Entity>) {
                             }
 
             );
-            //draw_surface(entity);
             set_default_camera();
             draw_text(&entity.screen_fonts);
         }
     }
     }
-}
-
-fn draw_surface(entity: &Entity) {
-    for line in &entity.surface {
-        draw_line(line.start.x, line.start.y, line.end.x, line.end.y, 1.0, WHITE);
-    }
-}
-
-fn define_surface(screen_height: f32, _screen_width: f32) -> Vec<Line> {
-    let mut lines = Vec::new();
-    // Maximum length of each line segment (1/20th of the screen height)
-    let max_line_length = screen_height / 20.0;
-
-    // Generate random-length connected line segments and store them in the vector
-    let num_lines = 20; // Number of lines
-    let mut last_end = vec2(0.0, rand::gen_range(0.0, screen_height)); // Starting point for the first line
-    for _ in 0..num_lines {
-        let line_length = rand::gen_range(0.0, max_line_length); // Random line length
-        let end_x = last_end.x + line_length; // End x-coordinate of the line
-        let end_y = rand::gen_range(0.0, screen_height); // Random y-coordinate of the line
-        let end = vec2(end_x, end_y); // End point of the line
-        lines.push(Line { start: last_end, end }); // Add line to the vector
-        last_end = end; // Update last end point for the next line
-    }    
-    lines
 }
 
 fn draw_text(fonts: &Fonts) {
@@ -198,16 +172,16 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
             lander.show_stats = !lander.show_stats;
         }
         if is_key_down(KeyCode::Right) {
-            println!("Right key down before: {:.2}", lander.transform.rotation);
+            debug!("Right key down before: {:.2}", lander.transform.rotation);
             // rotate lander right
             lander.transform.rotation = (lander.transform.rotation - ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
-            println!("Right key down after: {:.2}", lander.transform.rotation);
+            debug!("Right key down after: {:.2}", lander.transform.rotation);
         }
         if is_key_down(KeyCode::Left) {
-            println!("Left key down before: {:.2}", lander.transform.rotation);
+            debug!("Left key down before: {:.2}", lander.transform.rotation);
             // rotate lander left
             lander.transform.rotation = (lander.transform.rotation + ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
-            println!("Left key down after: {:.2}", lander.transform.rotation);
+            debug!("Left key down after: {:.2}", lander.transform.rotation);
         }
         if is_key_down(KeyCode::Up){
             // accelerate lander
@@ -218,12 +192,12 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
                 //                        ACCEL_INCREMENT * angle.sin() + ACCEL_INCREMENT * angle.cos());
 
                 let inc_acceleration = vec2(ACCEL_INCREMENT * angle.cos(), ACCEL_INCREMENT * angle.sin());
-                println!("angle: {:?}, current acceleration: {:?}", angle.to_degrees(), inc_acceleration);
+                debug!("angle: {:?}, current acceleration: {:?}", angle.to_degrees(), inc_acceleration);
 
                 phys.acceleration = phys.acceleration + inc_acceleration;
                 phys.acceleration.x = phys.acceleration.x.min(MAX_ACCEL_X);
                 phys.acceleration.y = phys.acceleration.y.min(MAX_ACCEL_Y);
-                println!("acceleration: {:?}", phys.acceleration);
+                debug!("acceleration: {:?}", phys.acceleration);
                 audio.play("acceleration"); 
             }
         }
@@ -278,10 +252,6 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     // Get the size of the texture
     let lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
 
-    let screen_width = macroquad::window::screen_width();
-    let screen_height = macroquad::window::screen_height();
-    let lines = define_surface(screen_height, screen_width);
-
     let fonts = load_fonts();
     let tex_center = vec2(-lander_texture_size.x / 2.0, lander_texture_size.y / 2.0);
 
@@ -293,7 +263,6 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
             rotation: 90.0,
         },
         screen_fonts: fonts,
-        surface: lines,
         physics: Some(Physics {
             velocity: vec2(0.0, 0.0),
             acceleration: vec2(0.0, 0.0),
@@ -324,38 +293,6 @@ fn update_audio(audio: &mut Audio) {
     }        
 }
 
-/* #[macroquad::main("Standard Axes Orientation")]
-async fn main() {
-    let camera = configure_camera();
-    let fonts = load_fonts();
-    loop {
-        // Set the camera
-        set_camera(&camera);
-
-        clear_background(WHITE);
-
-        // Draw a coordinate system for demonstration
-        draw_line(0.0, screen_height() / 2.0, screen_width(), screen_height() / 2.0, 2.0, BLACK); // x-axis
-        draw_line(screen_width() / 2.0, 0.0, screen_width() / 2.0, screen_height(), 2.0, BLACK); // y-axis
-
-        // Draw some shapes
-        draw_circle(screen_width() / 2.0, screen_height() / 2.0, 30.0, RED); // center circle
-        fonts.draw_text("Center", screen_width() / 2.0 + 40.0, screen_height() / 2.0, 30, DARKGRAY);
-
-        draw_circle(screen_width() / 2.0, screen_height() / 4.0, 20.0, BLUE); // top circle
-        fonts.draw_text("Top", screen_width() / 2.0 + 30.0, screen_height() / 4.0, 30, DARKGRAY);
-
-        draw_circle(screen_width() / 4.0, screen_height() / 2.0, 20.0, GREEN); // left circle
-        fonts.draw_text("Left", screen_width() / 4.0, screen_height() / 2.0 + 30.0, 30, DARKGRAY);
-
-        // Reset to the default camera before ending the frame
-        set_default_camera();
-
-        next_frame().await;
-    }
-}
- */
-
  // Main game loop
 #[macroquad::main("Lunar Lander")]
 async fn main() {
@@ -363,6 +300,24 @@ async fn main() {
     let mut audio = load_audio();
     let mut entities = Vec::new();
     add_lander_entity(&mut entities).await;
+
+    let num_points = 1000;
+    let min_height = 0.0;
+    let max_height = 100.0;
+    let base_frequency = 0.01;
+    let octaves = 6;
+    let persistence = 0.5;
+
+    let mut terrain = surface::generate_terrain(num_points, min_height, max_height, base_frequency, octaves, persistence);
+
+    // Add random flat spots for landing
+    let min_flat_length = 20;
+    let max_flat_length = 40;
+    let num_flat_spots = 5;
+    surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
+
+    surface::plot_terrain(&terrain);
+
 
     loop {
         clear_background(BLACK);
