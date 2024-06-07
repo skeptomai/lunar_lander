@@ -1,5 +1,5 @@
-#![allow(dead_code)]
 #![allow(unused_imports)]
+#![allow(dead_code)]
 use std::thread::sleep;
 
 use macroquad::prelude::*;
@@ -324,39 +324,7 @@ fn update_audio(audio: &mut Audio) {
     }        
 }
 
-/* #[macroquad::main("Standard Axes Orientation")]
-async fn main() {
-    let camera = configure_camera();
-    let fonts = load_fonts();
-    loop {
-        // Set the camera
-        set_camera(&camera);
 
-        clear_background(WHITE);
-
-        // Draw a coordinate system for demonstration
-        draw_line(0.0, screen_height() / 2.0, screen_width(), screen_height() / 2.0, 2.0, BLACK); // x-axis
-        draw_line(screen_width() / 2.0, 0.0, screen_width() / 2.0, screen_height(), 2.0, BLACK); // y-axis
-
-        // Draw some shapes
-        draw_circle(screen_width() / 2.0, screen_height() / 2.0, 30.0, RED); // center circle
-        fonts.draw_text("Center", screen_width() / 2.0 + 40.0, screen_height() / 2.0, 30, DARKGRAY);
-
-        draw_circle(screen_width() / 2.0, screen_height() / 4.0, 20.0, BLUE); // top circle
-        fonts.draw_text("Top", screen_width() / 2.0 + 30.0, screen_height() / 4.0, 30, DARKGRAY);
-
-        draw_circle(screen_width() / 4.0, screen_height() / 2.0, 20.0, GREEN); // left circle
-        fonts.draw_text("Left", screen_width() / 4.0, screen_height() / 2.0 + 30.0, 30, DARKGRAY);
-
-        // Reset to the default camera before ending the frame
-        set_default_camera();
-
-        next_frame().await;
-    }
-}
- */
-
- // Main game loop
 #[macroquad::main("Lunar Lander")]
 async fn main() {
 

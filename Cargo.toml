@@ -3,11 +3,13 @@ name = "lunar_lander"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+lto = true
 
 [dependencies]
-macroquad = {path = "../macroquad", default-features = false}
-macroquad-text = {path = "../macroquad-text", default-features = false}
+wasm-bindgen = { version = "0.2.73", features = ["serde-serialize"] }
+macroquad = {path = "../macroquad"}
+macroquad-text = {path = "../macroquad-text"}
 rusty_audio = {path = "../rusty_audio"}
 
 [features]
