@@ -12,11 +12,11 @@ const GLASS_TTY_VT220: &[u8] = include_bytes!("../assets/fonts/Glass_TTY_VT220.t
 const MAX_ACCEL_X: f32 = 150.0;
 const MAX_ACCEL_Y: f32 = 150.0;
 const MILLIS_DELAY: u64 = 40;
-const ROTATION_INCREMENT: f32 = 4.0;
-const ACCEL_INCREMENT: f32 = 6.5;
+const ROTATION_INCREMENT: f32 = 3.0;
+const ACCEL_INCREMENT: f32 = 3.5;
 const FULL_CIRCLE_DEGREES: f32 = 360.0;
-const TEXTURE_SCALE_X: f32 = 0.5;
-const TEXTURE_SCALE_Y: f32 = 0.5;
+const TEXTURE_SCALE_X: f32 = 0.4;
+const TEXTURE_SCALE_Y: f32 = 0.4;
 #[derive(Debug)]
 struct Line {
     start: Vec2,
@@ -99,22 +99,6 @@ fn render(entities: &Vec<Entity>) {
     for entity in entities {
         set_default_camera();
         if let Some(phys) = &entity.physics {
-
-            let x = entity.transform.position.x;
-            let y = entity.transform.position.y;
-            let angle_degrees = entity.transform.rotation;
-            let accel = phys.acceleration;                        
-            let accel_x = phys.acceleration.x;
-            let accel_y = phys.acceleration.y;
-            let vel_x = phys.velocity.x;
-            let vel_y = phys.velocity.y;
-
-            if entity.show_stats {
-                let mut text = format!("x: {:.2}, y: {:.2}, angle: {:.2}", x, y, angle_degrees);
-                entity.screen_fonts.draw_text(&text, 5.0, screen_height()-40.0, 10.0, Color::from([1.0; 4]));            
-                text = format!("accel_x: {:.2}, accel_y: {:.2}, accel_length: {:.2}, vel_x: {:.2}, vel_y: {:.2}", accel_x, accel_y, accel.length(), vel_x, vel_y);
-                entity.screen_fonts.draw_text(&text, 5.0, screen_height()-20.0, 10.0, Color::from([1.0; 4]));
-            }
          
         // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
         let accel = phys.acceleration;
@@ -144,22 +128,45 @@ fn render(entities: &Vec<Entity>) {
 
             );
             set_default_camera();
-            draw_text(&entity.screen_fonts);
+            draw_text(&entity);
         }
     }
     }
 }
 
-fn draw_text(fonts: &Fonts) {
+fn draw_text(entity: &Entity) {
+    let fonts = &entity.screen_fonts;
+    let phys = entity.physics.as_ref().unwrap();
+
     fonts.draw_text("SCORE", 20.0, 0.0, 15.0, Color::from([1.0; 4]));
     fonts.draw_text("TIME", 20.0, 20.0, 15.0, Color::from([1.0; 4]));
     fonts.draw_text("FUEL", 20.0, 40.0, 15.0, Color::from([1.0; 4]));
 
     let w = macroquad::window::screen_width();
-    let right_text_start = w - 175.0;
-    fonts.draw_text("ALTITUDE", right_text_start, 0.0, 15.0, Color::from([1.0; 4]));
-    fonts.draw_text("HORIZONTAL SPEED", right_text_start, 20.0, 15.0, Color::from([1.0; 4]));
-    fonts.draw_text("VERTICAL SPEED", right_text_start, 40.0, 15.0, Color::from([1.0; 4]));
+    let right_text_start = w - 195.0;
+    let altitude_text = format!("ALTITUDE: {:.2}", entity.transform.position.y);
+    let horizontal_speed_text = format!("HORIZONTAL SPEED: {:.2}", phys.velocity.x);
+    let vertical_speed_text = format!("VERTICAL SPEED: {:.2}", phys.velocity.y);
+    fonts.draw_text(&altitude_text, right_text_start, 0.0, 15.0, Color::from([1.0; 4]));
+    fonts.draw_text(&horizontal_speed_text, right_text_start, 20.0, 15.0, Color::from([1.0; 4]));
+    fonts.draw_text(&vertical_speed_text, right_text_start, 40.0, 15.0, Color::from([1.0; 4]));
+    
+    if entity.show_stats {
+        let x = entity.transform.position.x;
+        let y = entity.transform.position.y;
+        let angle_degrees = entity.transform.rotation;
+        let accel = phys.acceleration;                        
+        let accel_x = phys.acceleration.x;
+        let accel_y = phys.acceleration.y;
+        let vel_x = phys.velocity.x;
+        let vel_y = phys.velocity.y;        
+        let mut text = format!("x: {:.2}, y: {:.2}, angle: {:.2}", x, y, angle_degrees);
+        fonts.draw_text(&text, 80.0, 5.0, 10.0, Color::from([1.0; 4]));
+        text = format!("accel_x: {:.2}, accel_y: {:.2}, accel_length: {:.2}, vel_x: {:.2}, vel_y: {:.2}", 
+            accel_x, accel_y, accel.length(), vel_x, vel_y);
+        fonts.draw_text(&text, 80.0, 25.0, 10.0, Color::from([1.0; 4]));
+    }
+
     //fonts.draw_text("0,0", 0.0, 0.0, 15.0, Color::from([1.0; 4]));
     //fonts.draw_text("X_MAX,0", screen_width()-60.0, 0.0, 15.0, Color::from([1.0; 4]));
     //fonts.draw_text("0,Y_MAX", 0.0, screen_height()-20.0, 15.0, Color::from([1.0; 4]));
