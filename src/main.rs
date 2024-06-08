@@ -119,7 +119,7 @@ fn render(entities: &Vec<Entity>) {
         // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
         let accel = phys.acceleration;
         let o_renderer = if accel.length() > 0.0 {
-            if accel.length() > 1.0 {
+            if accel.length() > 40.0 {
                 &entity.renderer_lander_high_accel
             } else {
                 &entity.renderer_lander_accel
@@ -314,10 +314,9 @@ async fn main() {
     let min_flat_length = 20;
     let max_flat_length = 40;
     let num_flat_spots = 5;
+    let y_offset = screen_height() as f64 - max_height;
+    
     surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
-
-    surface::plot_terrain(&terrain);
-
 
     loop {
         clear_background(BLACK);
@@ -332,6 +331,18 @@ async fn main() {
 
         // Render systems
         render(&entities);
+
+        // plot surface
+        for i in 0..(terrain.len() - 1) {
+            draw_line(
+                i as f32,
+                (terrain[i] + y_offset) as f32,
+                (i + 1) as f32,
+                (terrain[i + 1] + y_offset) as f32,
+                2.0,
+                DARKGREEN,
+            );
+        }
 
         update_audio(&mut audio);
 
