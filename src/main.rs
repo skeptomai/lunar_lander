@@ -56,7 +56,6 @@ struct Entity<'a> {
     renderer_lander_high_accel: Option<Renderer>,    
     input: Option<Input>,
     collision: Option<Collision>,
-    show_stats: bool
 }
 
 impl<'a> Entity<'a> {
@@ -74,7 +73,6 @@ impl<'a> Entity<'a> {
             renderer_lander_high_accel: None,
             input: None,
             collision: None,
-            show_stats: false
         }
     }
 }
@@ -150,34 +148,10 @@ fn draw_text(entity: &Entity) {
     fonts.draw_text(&altitude_text, right_text_start, 0.0, 15.0, Color::from([1.0; 4]));
     fonts.draw_text(&horizontal_speed_text, right_text_start, 20.0, 15.0, Color::from([1.0; 4]));
     fonts.draw_text(&vertical_speed_text, right_text_start, 40.0, 15.0, Color::from([1.0; 4]));
-    
-    if entity.show_stats {
-        let x = entity.transform.position.x;
-        let y = entity.transform.position.y;
-        let angle_degrees = entity.transform.rotation;
-        let accel = phys.acceleration;                        
-        let accel_x = phys.acceleration.x;
-        let accel_y = phys.acceleration.y;
-        let vel_x = phys.velocity.x;
-        let vel_y = phys.velocity.y;        
-        let mut text = format!("x: {:.2}, y: {:.2}, angle: {:.2}", x, y, angle_degrees);
-        fonts.draw_text(&text, 80.0, 5.0, 10.0, Color::from([1.0; 4]));
-        text = format!("accel_x: {:.2}, accel_y: {:.2}, accel_length: {:.2}, vel_x: {:.2}, vel_y: {:.2}", 
-            accel_x, accel_y, accel.length(), vel_x, vel_y);
-        fonts.draw_text(&text, 80.0, 25.0, 10.0, Color::from([1.0; 4]));
-    }
-
-    //fonts.draw_text("0,0", 0.0, 0.0, 15.0, Color::from([1.0; 4]));
-    //fonts.draw_text("X_MAX,0", screen_width()-60.0, 0.0, 15.0, Color::from([1.0; 4]));
-    //fonts.draw_text("0,Y_MAX", 0.0, screen_height()-20.0, 15.0, Color::from([1.0; 4]));
-    //fonts.draw_text("X_MAX,Y_MAX", screen_width()-90.0, screen_height()-20.0, 15.0, Color::from([1.0; 4]));
 }
 
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         // Handle input
-        if is_key_released(KeyCode::S) {
-            lander.show_stats = !lander.show_stats;
-        }
         if is_key_down(KeyCode::Right) {
             debug!("Right key down before: {:.2}", lander.transform.rotation);
             // rotate lander right
@@ -287,7 +261,6 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         collision: Some(Collision {
             collider: Rect::new(0.0, 0.0, 64.0, 64.0), // Adjust collider size as needed
         }),
-        show_stats: false
     };
 
     entities.push(lander); 
