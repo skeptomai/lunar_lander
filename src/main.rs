@@ -16,9 +16,11 @@ const MILLIS_DELAY: u64 = 40;
 const ROTATION_INCREMENT: f32 = 3.0;
 const ACCEL_INCREMENT: f32 = 3.5;
 const FULL_CIRCLE_DEGREES: f32 = 360.0;
-const TEXTURE_SCALE_X: f32 = 1.0;
-const TEXTURE_SCALE_Y: f32 = 1.0;
+const TEXTURE_SCALE_X: f32 = 0.5;
+const TEXTURE_SCALE_Y: f32 = 0.5;
 const TERRAIN_Y_OFFSET: f64 = 75.0;
+const ALERT_BOX_WIDTH: f32 = 300.0;
+const ALERT_BOX_HEIGHT: f32 = 100.0;
 
 #[derive(Debug)]
 struct Line {
@@ -62,7 +64,8 @@ struct Entity<'a> {
     collision: Option<Collision>,
     sound: bool,
     time_elapsed: i32,
-    fuel: f64
+    fuel: f64,
+    show_debug_info: bool,
 }
 
 impl<'a> Entity<'a> {
@@ -84,6 +87,7 @@ impl<'a> Entity<'a> {
             sound: true,
             time_elapsed: 0,
             fuel: 1000.0,
+            show_debug_info: false,
         }
     }
 }
@@ -109,6 +113,13 @@ fn render(entities: &Vec<Entity>) {
     for entity in entities {
         set_default_camera();
         if let Some(phys) = &entity.physics {
+
+            if entity.show_debug_info {
+                debug!("position: {:?}", entity.transform.position);
+                debug!("velocity: {:?}", phys.velocity);
+                debug!("acceleration: {:?}", phys.acceleration);
+                draw_collision_bounding_box(entity);
+            }
 
             // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
             let accel = phys.acceleration;
@@ -155,12 +166,6 @@ fn render(entities: &Vec<Entity>) {
             set_default_camera();
             draw_text(&entity);
         }
-
-        // Check for collision
-       if check_collision(&entity) {
-            debug!("Collision Detected!");
-        }
-
     }
 }
 
@@ -184,72 +189,103 @@ fn draw_text(entity: &Entity) {
     fonts.draw_text(&vertical_speed_text, right_text_start, 40.0, 15.0, Color::from([1.0; 4]));
 }
 
+fn draw_alert_box(entity: &Entity) {
+    let fonts = &entity.screen_fonts;
+
+    let screen_width = screen_width();
+    let screen_height = screen_height();
+    let box_x = (screen_width - ALERT_BOX_WIDTH) / 2.0;
+    let box_y = (screen_height - ALERT_BOX_HEIGHT) / 2.0;
+
+    draw_rectangle(box_x, box_y, ALERT_BOX_WIDTH, ALERT_BOX_HEIGHT, GRAY);
+    fonts.draw_text("Mission Failed!", box_x + 20.0, box_y + 40.0, 30.0, RED);
+    fonts.draw_text("Press R to Restart", box_x + 20.0, box_y + 70.0, 20.0, WHITE);
+}
+
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
-        // Handle input
-        if is_key_down(KeyCode::Space) {
-            // Reset lander
-            // Get the size of the texture
-            let lander_texture = &lander.renderer_lander.as_ref().unwrap().texture;
-            let lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
-            let tex_center = vec2(-lander_texture_size.x / 2.0, lander_texture_size.y / 2.0);
+    // Handle input
+    if is_key_down(KeyCode::R) {
+        reset_lander(lander);
+    }
+    if is_key_down(KeyCode::Escape) {
+        // Exit game
+        shutdown_audio(audio);
+        std::process::exit(0);
+    }
+    if is_key_released(KeyCode::S) {
+        lander.sound = !lander.sound;
+    }
+    if is_key_down(KeyCode::Right) {
+        // rotate lander right
+        lander.transform.rotation = (lander.transform.rotation - ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
+    }
+    if is_key_down(KeyCode::Left) {
+        // rotate lander left
+        lander.transform.rotation = (lander.transform.rotation + ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
+    }
+    if is_key_down(KeyCode::Up){
+        // accelerate lander
+        if let Some(phys) = lander.physics.as_mut() {
+            let angle = lander.transform.rotation.to_radians();
+            let inc_acceleration = vec2(ACCEL_INCREMENT * angle.cos(), ACCEL_INCREMENT * angle.sin());
 
-            lander.transform.position = transform_axes(tex_center);
-            lander.transform.rotation = 90.0;
-            lander.physics = Some(Physics {
-                velocity: vec2(0.0, 0.0),
-                acceleration: vec2(0.0, 0.0),
-            });
+            phys.acceleration = phys.acceleration + inc_acceleration;
+            phys.acceleration.x = phys.acceleration.x.min(MAX_ACCEL_X);
+            phys.acceleration.y = phys.acceleration.y.min(MAX_ACCEL_Y);
+            audio.play("acceleration");
         }
-        if is_key_down(KeyCode::Escape) {
-            // Exit game
+    }
+    if is_key_released(KeyCode::Up){
+        // stop acceleration
+        if let Some(phys) = lander.physics.as_mut() {
+            phys.acceleration = vec2(0.0, 0.0);
             shutdown_audio(audio);
-            std::process::exit(0);
         }
-        if is_key_released(KeyCode::S) {
-            lander.sound = !lander.sound;
+    }
+    if is_key_released(KeyCode::D) {
+        lander.show_debug_info = !lander.show_debug_info;
+    }
+    if lander.sound {
+        update_audio(audio);
+    } else {
+        if audio.is_playing() {
+            shutdown_audio(audio);
         }
-        if is_key_down(KeyCode::Right) {
-            // rotate lander right
-            lander.transform.rotation = (lander.transform.rotation - ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
-        }
-        if is_key_down(KeyCode::Left) {
-            // rotate lander left
-            lander.transform.rotation = (lander.transform.rotation + ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
-        }
-        if is_key_down(KeyCode::Up){
-            // accelerate lander
-            if let Some(phys) = lander.physics.as_mut() {
-                let angle = lander.transform.rotation.to_radians();
-                // Incremental acceleration is in direction of the lander
-                //let inc_acceleration = vec2(ACCEL_INCREMENT * angle.cos() - ACCEL_INCREMENT * angle.sin(),
-                //                        ACCEL_INCREMENT * angle.sin() + ACCEL_INCREMENT * angle.cos());
+    }
 
-                let inc_acceleration = vec2(ACCEL_INCREMENT * angle.cos(), ACCEL_INCREMENT * angle.sin());
-                debug!("angle: {:?}, current acceleration: {:?}", angle.to_degrees(), inc_acceleration);
+    // Check for collision
+    if check_collision(lander) {
+        debug!("Collision Detected!");
+        draw_alert_box(lander);
+        stop_lander(lander);
+    }
+}
 
-                phys.acceleration = phys.acceleration + inc_acceleration;
-                phys.acceleration.x = phys.acceleration.x.min(MAX_ACCEL_X);
-                phys.acceleration.y = phys.acceleration.y.min(MAX_ACCEL_Y);
-                debug!("acceleration: {:?}", phys.acceleration);
-                audio.play("acceleration");
-            }
-        }
-        if is_key_released(KeyCode::Up){
-            // stop acceleration
-            if let Some(phys) = lander.physics.as_mut() {
-                phys.acceleration = vec2(0.0, 0.0);
-                shutdown_audio(audio);
-            }
-        }
+fn stop_lander(lander: &mut Entity) {
+    if let Some(phys) = lander.physics.as_mut() {
+        phys.velocity = vec2(0.0, 0.0);
+        phys.acceleration = vec2(0.0, 0.0);
+    }
+    lander.collision = Some(Collision {
+        collider: Rect::new(0.0, 0.0, 0.0, 0.0),
+    });
+}
 
-        if lander.sound {
-            update_audio(audio);
-        } else {
-            if audio.is_playing() {
-                shutdown_audio(audio);
-            }
-        }
+fn reset_lander(lander: &mut Entity) {
+    // Reset lander
+    // Get the size of the texture
+    let lander_texture = &lander.renderer_lander.as_ref().unwrap().texture;
+    let lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
+    let tex_center = vec2(-lander_texture_size.x / 2.0, lander_texture_size.y / 2.0);
 
+    lander.transform.position = transform_axes(tex_center);
+    lander.transform.rotation = 90.0;
+    lander.physics = Some(Physics {
+        velocity: vec2(0.0, 0.0),
+        acceleration: vec2(0.0, 0.0),
+    });
+    lander.fuel = 1000.0;
+    lander.time_elapsed = 0;
 }
 
 fn load_fonts<'a>() -> Fonts<'a> {
@@ -344,6 +380,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         sound: true,
         time_elapsed: 0,
         fuel: 1000.0,
+        show_debug_info: false,
     };
 
     entities.push(lander);
@@ -363,18 +400,10 @@ fn shutdown_audio(audio: &mut Audio) {
 
 fn check_collision(entity: &Entity) -> bool {
 
-    /*
-    let x0 = entity.transform.position.x - entity.transform.size.x / 2.0;
-    let _y0 = entity.transform.position.y - entity.transform.size.y / 2.0;
-    let x1 = entity.transform.position.x + entity.transform.size.x / 2.0;
-    let y1 = entity.transform.position.y + entity.transform.size.y / 2.0;
-    */
     let x0 = entity.transform.position.x;
     let y0 = entity.transform.position.y;
     let x1 = entity.transform.position.x + entity.transform.size.x;
-    let _y1 = entity.transform.position.y + entity.transform.size.y;
-
-    draw_collision_bounding_box(entity);
+    let _y1 = entity.transform.position.y + entity.transform.size.y;    
 
     if x0 >= entity.terrain.len() as f32 {
         return false;
@@ -398,7 +427,7 @@ fn draw_collision_bounding_box(entity: &Entity) -> () {
     let x1 = entity.transform.position.x + entity.transform.size.x;
     let _y1 = entity.transform.position.y + entity.transform.size.y;
 
-    draw_rectangle_lines(x0, y0, entity.transform.size.x, entity.transform.size.y, 2.0, RED);
+    draw_rectangle_lines(x0, y0, entity.transform.size.x , entity.transform.size.y+2.0 , 2.0, RED);
     draw_line(x0, y0, x1, y0, 3.0, BLUE);
     set_default_camera()
 }
