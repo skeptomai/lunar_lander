@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_imports)]
+use core::time;
 use std::thread::sleep;
 
 use macroquad::prelude::*;
@@ -56,10 +57,12 @@ struct Entity<'a> {
     physics: Option<Physics>,
     renderer_lander: Option<Renderer>,
     renderer_lander_accel: Option<Renderer>,
-    renderer_lander_high_accel: Option<Renderer>,    
+    renderer_lander_high_accel: Option<Renderer>,
     input: Option<Input>,
     collision: Option<Collision>,
     sound: bool,
+    time_elapsed: i32,
+    fuel: f64
 }
 
 impl<'a> Entity<'a> {
@@ -79,6 +82,8 @@ impl<'a> Entity<'a> {
             input: None,
             collision: None,
             sound: true,
+            time_elapsed: 0,
+            fuel: 1000.0,
         }
     }
 }
@@ -88,21 +93,23 @@ fn update_physics(entities: &mut Vec<Entity>) {
     for entity in entities {
         if let Some(physics) = &mut entity.physics {
             physics.velocity.x = physics.velocity.x + physics.acceleration.x * get_frame_time();
-            physics.velocity.y = physics.velocity.y + physics.acceleration.y * get_frame_time();            
+            physics.velocity.y = physics.velocity.y + physics.acceleration.y * get_frame_time();
             entity.transform.position += physics.velocity * get_frame_time();
             entity.transform.position.x = entity.transform.position.x.rem_euclid(screen_width());
             entity.transform.position.y = entity.transform.position.y.rem_euclid(screen_height());
+            entity.time_elapsed += 1;
+            entity.fuel -= 0.1;
         }
     }
 }
 
 fn render(entities: &Vec<Entity>) {
     let camera = configure_camera();
-    
+
     for entity in entities {
         set_default_camera();
         if let Some(phys) = &entity.physics {
-         
+
             // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
             let accel = phys.acceleration;
             let o_renderer = if accel.length() > 0.0 {
@@ -114,7 +121,7 @@ fn render(entities: &Vec<Entity>) {
             } else {
                 &entity.renderer_lander
             };
-            
+
             if let Some(renderer) = o_renderer {
                 set_camera(&camera);
                 draw_texture_ex(&renderer.texture,
@@ -123,7 +130,7 @@ fn render(entities: &Vec<Entity>) {
                                 WHITE,
                                 DrawTextureParams {
                                     dest_size: Some(entity.transform.size), // Set destination size if needed
-                                    rotation: entity.transform.rotation.to_radians(), 
+                                    rotation: entity.transform.rotation.to_radians(),
                                     flip_x: false,
                                     flip_y: false,
                                     ..Default::default()
@@ -146,13 +153,13 @@ fn render(entities: &Vec<Entity>) {
             }
 
             set_default_camera();
-            draw_text(&entity);            
+            draw_text(&entity);
         }
 
         // Check for collision
        if check_collision(&entity) {
             debug!("Collision Detected!");
-        }        
+        }
 
     }
 }
@@ -161,9 +168,11 @@ fn draw_text(entity: &Entity) {
     let fonts = &entity.screen_fonts;
     let phys = entity.physics.as_ref().unwrap();
 
+    let time_elapsed_text = format!("TIME {}", entity.time_elapsed);
     fonts.draw_text("SCORE", 20.0, 0.0, 15.0, Color::from([1.0; 4]));
-    fonts.draw_text("TIME", 20.0, 20.0, 15.0, Color::from([1.0; 4]));
-    fonts.draw_text("FUEL", 20.0, 40.0, 15.0, Color::from([1.0; 4]));
+    fonts.draw_text(&time_elapsed_text, 20.0, 20.0, 15.0, Color::from([1.0; 4]));
+    let fuel_text = format!("FUEL: {:.2}", entity.fuel);
+    fonts.draw_text(&fuel_text, 20.0, 40.0, 15.0, Color::from([1.0; 4]));
 
     let w = macroquad::window::screen_width();
     let right_text_start = w - 195.0;
@@ -222,7 +231,7 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
                 phys.acceleration.x = phys.acceleration.x.min(MAX_ACCEL_X);
                 phys.acceleration.y = phys.acceleration.y.min(MAX_ACCEL_Y);
                 debug!("acceleration: {:?}", phys.acceleration);
-                audio.play("acceleration"); 
+                audio.play("acceleration");
             }
         }
         if is_key_released(KeyCode::Up){
@@ -236,10 +245,10 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         if lander.sound {
             update_audio(audio);
         } else {
-            if audio.is_playing() {          
+            if audio.is_playing() {
                 shutdown_audio(audio);
             }
-        }    
+        }
 
 }
 
@@ -251,8 +260,8 @@ fn load_fonts<'a>() -> Fonts<'a> {
 
 fn load_audio() -> Audio {
     let mut audio = Audio::new();
-    audio.add("ambient", "assets/sounds/218883-jet_whine_v2_mid_loop.wav"); 
-    audio.add("acceleration", "assets/sounds/218837-jet_turbine_main_blast.wav"); 
+    audio.add("ambient", "assets/sounds/218883-jet_whine_v2_mid_loop.wav");
+    audio.add("acceleration", "assets/sounds/218837-jet_turbine_main_blast.wav");
     audio
 }
 
@@ -292,13 +301,13 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let min_flat_length = 20;
     let max_flat_length = 40;
     let num_flat_spots = 5;
-    
+
     surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
 
     // Load a texture (replace "texture.png" with the path to your texture)
     let lander_texture = load_texture("assets/images/lander.png").await.expect("Failed to load texture");
     let lander_accel_texture = load_texture("assets/images/lander-accel.png").await.expect("Failed to load texture");
-    let lander_high_accel_texture = load_texture("assets/images/lander-high-accel.png").await.expect("Failed to load texture");    
+    let lander_high_accel_texture = load_texture("assets/images/lander-high-accel.png").await.expect("Failed to load texture");
 
     // Get the size of the texture
     let lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
@@ -333,17 +342,19 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
             collider: Rect::new(0.0, 0.0, 64.0, 64.0), // Adjust collider size as needed
         }),
         sound: true,
+        time_elapsed: 0,
+        fuel: 1000.0,
     };
 
-    entities.push(lander); 
+    entities.push(lander);
 
 }
 
 fn update_audio(audio: &mut Audio) {
     if !audio.is_playing() {
         debug!("Updating Playing audio");
-        audio.play("ambient"); // Execution continues while playback occurs in another thread.            
-    }        
+        audio.play("ambient"); // Execution continues while playback occurs in another thread.
+    }
 }
 
 fn shutdown_audio(audio: &mut Audio) {
@@ -367,12 +378,15 @@ fn check_collision(entity: &Entity) -> bool {
 
     if x0 >= entity.terrain.len() as f32 {
         return false;
-    } 
-    
-    if y0 < entity.terrain[x0 as usize] as f32 || y0 < entity.terrain[x1 as usize] as f32 {
-        info!("Collision detected at x: {}, y: {}", entity.transform.position.x, entity.transform.position.y);
-        return true;
     }
+
+    for i in x0 as usize..x1 as usize {
+        if y0 < entity.terrain[i] as f32 {
+            info!("Collision detected at x: {}, y: {}", entity.transform.position.x, entity.transform.position.y);
+            return true;
+        }
+    }
+
     false
 }
 
@@ -381,11 +395,12 @@ fn draw_collision_bounding_box(entity: &Entity) -> () {
     set_camera(&camera);
     let x0 = entity.transform.position.x;
     let y0 = entity.transform.position.y;
-    let _x1 = entity.transform.position.x + entity.transform.size.x;
+    let x1 = entity.transform.position.x + entity.transform.size.x;
     let _y1 = entity.transform.position.y + entity.transform.size.y;
 
-    draw_rectangle_lines(x0, y0, entity.transform.size.x, entity.transform.size.y, 2.0, RED); 
-    set_default_camera()   
+    draw_rectangle_lines(x0, y0, entity.transform.size.x, entity.transform.size.y, 2.0, RED);
+    draw_line(x0, y0, x1, y0, 3.0, BLUE);
+    set_default_camera()
 }
 
  // Main game loop
