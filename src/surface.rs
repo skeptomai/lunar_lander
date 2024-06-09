@@ -56,32 +56,3 @@ pub fn add_flat_spots(terrain: &mut Vec<f64>, min_length: usize, max_length: usi
         }
     }
 }
-
-pub fn plot_terrain(terrain: &[f64]) {
-    let root = BitMapBackend::new("terrain.png", (WIDTH, HEIGHT)).into_drawing_area();
-    root.fill(&WHITE).unwrap();
-
-    let max_height = terrain.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let min_height = terrain.iter().cloned().fold(f64::INFINITY, f64::min);
-
-    let mut chart = ChartBuilder::on(&root)
-        .caption("Generated Terrain", ("sans-serif", 50).into_font())
-        .margin(10)
-        .x_label_area_size(30)
-        .y_label_area_size(30)
-        .build_cartesian_2d(0..terrain.len(), min_height..max_height)
-        .unwrap();
-
-    chart.configure_mesh().draw().unwrap();
-
-    chart
-        .draw_series(LineSeries::new(
-            terrain.iter().enumerate().map(|(x, y)| (x, *y)),
-            &RED,
-        ))
-        .unwrap();
-
-    root.present().unwrap();
-}
-
-

@@ -15,8 +15,10 @@ const MILLIS_DELAY: u64 = 40;
 const ROTATION_INCREMENT: f32 = 3.0;
 const ACCEL_INCREMENT: f32 = 3.5;
 const FULL_CIRCLE_DEGREES: f32 = 360.0;
-const TEXTURE_SCALE_X: f32 = 0.4;
-const TEXTURE_SCALE_Y: f32 = 0.4;
+const TEXTURE_SCALE_X: f32 = 1.0;
+const TEXTURE_SCALE_Y: f32 = 1.0;
+const TERRAIN_Y_OFFSET: f64 = 75.0;
+
 #[derive(Debug)]
 struct Line {
     start: Vec2,
@@ -49,6 +51,7 @@ struct Collision {
 // Define entities
 struct Entity<'a> {
     transform: Transform,
+    terrain: Vec<f64>,
     screen_fonts: Fonts<'a>,
     physics: Option<Physics>,
     renderer_lander: Option<Renderer>,
@@ -56,6 +59,7 @@ struct Entity<'a> {
     renderer_lander_high_accel: Option<Renderer>,    
     input: Option<Input>,
     collision: Option<Collision>,
+    sound: bool,
 }
 
 impl<'a> Entity<'a> {
@@ -66,6 +70,7 @@ impl<'a> Entity<'a> {
                 position: vec2(0.0, 0.0),
                 rotation: 0.0,
             },
+            terrain: Vec::new(),
             screen_fonts: Fonts::<'a>::default(),
             physics: None,
             renderer_lander: None,
@@ -73,6 +78,7 @@ impl<'a> Entity<'a> {
             renderer_lander_high_accel: None,
             input: None,
             collision: None,
+            sound: true,
         }
     }
 }
@@ -81,7 +87,6 @@ impl<'a> Entity<'a> {
 fn update_physics(entities: &mut Vec<Entity>) {
     for entity in entities {
         if let Some(physics) = &mut entity.physics {
-            //BUGBUG: This is not correct physics
             physics.velocity.x = physics.velocity.x + physics.acceleration.x * get_frame_time();
             physics.velocity.y = physics.velocity.y + physics.acceleration.y * get_frame_time();            
             entity.transform.position += physics.velocity * get_frame_time();
@@ -98,37 +103,57 @@ fn render(entities: &Vec<Entity>) {
         set_default_camera();
         if let Some(phys) = &entity.physics {
          
-        // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
-        let accel = phys.acceleration;
-        let o_renderer = if accel.length() > 0.0 {
-            if accel.length() > 40.0 {
-                &entity.renderer_lander_high_accel
+            // If there's acceleration, use the appropriate image (lander_accel or lander_high_accel)
+            let accel = phys.acceleration;
+            let o_renderer = if accel.length() > 0.0 {
+                if accel.length() > 40.0 {
+                    &entity.renderer_lander_high_accel
+                } else {
+                    &entity.renderer_lander_accel
+                }
             } else {
-                &entity.renderer_lander_accel
-            }
-        } else {
-            &entity.renderer_lander
-        };
-        
-        if let Some(renderer) = o_renderer {
-            set_camera(&camera);
-            draw_texture_ex(&renderer.texture,
-                            entity.transform.position.x,
-                            entity.transform.position.y,
-                            WHITE,
-                            DrawTextureParams {
-                                dest_size: Some(entity.transform.size), // Set destination size if needed
-                                rotation: entity.transform.rotation.to_radians(), 
-                                flip_x: false,
-                                flip_y: false,
-                                ..Default::default()
-                            }
+                &entity.renderer_lander
+            };
+            
+            if let Some(renderer) = o_renderer {
+                set_camera(&camera);
+                draw_texture_ex(&renderer.texture,
+                                entity.transform.position.x,
+                                entity.transform.position.y,
+                                WHITE,
+                                DrawTextureParams {
+                                    dest_size: Some(entity.transform.size), // Set destination size if needed
+                                    rotation: entity.transform.rotation.to_radians(), 
+                                    flip_x: false,
+                                    flip_y: false,
+                                    ..Default::default()
+                                }
 
-            );
+                );
+
+            }
+
+            // plot surface
+            for i in 0..(entity.terrain.len() - 1) {
+                draw_line(
+                    i as f32,
+                    entity.terrain[i] as f32,
+                    (i + 1) as f32,
+                    entity.terrain[i + 1] as f32,
+                    2.0,
+                    DARKGREEN,
+                );
+            }
+
             set_default_camera();
-            draw_text(&entity);
+            draw_text(&entity);            
         }
-    }
+
+        // Check for collision
+       if check_collision(&entity) {
+            debug!("Collision Detected!");
+        }        
+
     }
 }
 
@@ -152,17 +177,35 @@ fn draw_text(entity: &Entity) {
 
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         // Handle input
+        if is_key_down(KeyCode::Space) {
+            // Reset lander
+            // Get the size of the texture
+            let lander_texture = &lander.renderer_lander.as_ref().unwrap().texture;
+            let lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
+            let tex_center = vec2(-lander_texture_size.x / 2.0, lander_texture_size.y / 2.0);
+
+            lander.transform.position = transform_axes(tex_center);
+            lander.transform.rotation = 90.0;
+            lander.physics = Some(Physics {
+                velocity: vec2(0.0, 0.0),
+                acceleration: vec2(0.0, 0.0),
+            });
+        }
+        if is_key_down(KeyCode::Escape) {
+            // Exit game
+            shutdown_audio(audio);
+            std::process::exit(0);
+        }
+        if is_key_released(KeyCode::S) {
+            lander.sound = !lander.sound;
+        }
         if is_key_down(KeyCode::Right) {
-            debug!("Right key down before: {:.2}", lander.transform.rotation);
             // rotate lander right
             lander.transform.rotation = (lander.transform.rotation - ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
-            debug!("Right key down after: {:.2}", lander.transform.rotation);
         }
         if is_key_down(KeyCode::Left) {
-            debug!("Left key down before: {:.2}", lander.transform.rotation);
             // rotate lander left
             lander.transform.rotation = (lander.transform.rotation + ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
-            debug!("Left key down after: {:.2}", lander.transform.rotation);
         }
         if is_key_down(KeyCode::Up){
             // accelerate lander
@@ -186,9 +229,18 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
             // stop acceleration
             if let Some(phys) = lander.physics.as_mut() {
                 phys.acceleration = vec2(0.0, 0.0);
-                audio.stop();
+                shutdown_audio(audio);
             }
         }
+
+        if lander.sound {
+            update_audio(audio);
+        } else {
+            if audio.is_playing() {          
+                shutdown_audio(audio);
+            }
+        }    
+
 }
 
 fn load_fonts<'a>() -> Fonts<'a> {
@@ -225,6 +277,24 @@ fn configure_camera() -> Camera2D {
 }
 
 async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
+
+    let num_points = 1000;
+    let min_height = 0.0;
+    let max_height = 100.0;
+    let base_frequency = 0.01;
+    let octaves = 6;
+    let persistence = 0.5;
+
+    let mut terrain = surface::generate_terrain(num_points, min_height, max_height, base_frequency, octaves, persistence);
+    terrain.iter_mut().for_each(|h| *h = *h + TERRAIN_Y_OFFSET); // offset terrain to the bottom of the screen
+
+    // Add random flat spots for landing
+    let min_flat_length = 20;
+    let max_flat_length = 40;
+    let num_flat_spots = 5;
+    
+    surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
+
     // Load a texture (replace "texture.png" with the path to your texture)
     let lander_texture = load_texture("assets/images/lander.png").await.expect("Failed to load texture");
     let lander_accel_texture = load_texture("assets/images/lander-accel.png").await.expect("Failed to load texture");
@@ -243,6 +313,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
             position: transform_axes(tex_center),
             rotation: 90.0,
         },
+        terrain: terrain,
         screen_fonts: fonts,
         physics: Some(Physics {
             velocity: vec2(0.0, 0.0),
@@ -261,6 +332,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         collision: Some(Collision {
             collider: Rect::new(0.0, 0.0, 64.0, 64.0), // Adjust collider size as needed
         }),
+        sound: true,
     };
 
     entities.push(lander); 
@@ -269,8 +341,51 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
 fn update_audio(audio: &mut Audio) {
     if !audio.is_playing() {
+        debug!("Updating Playing audio");
         audio.play("ambient"); // Execution continues while playback occurs in another thread.            
     }        
+}
+
+fn shutdown_audio(audio: &mut Audio) {
+    audio.stop();
+}
+
+fn check_collision(entity: &Entity) -> bool {
+
+    /*
+    let x0 = entity.transform.position.x - entity.transform.size.x / 2.0;
+    let _y0 = entity.transform.position.y - entity.transform.size.y / 2.0;
+    let x1 = entity.transform.position.x + entity.transform.size.x / 2.0;
+    let y1 = entity.transform.position.y + entity.transform.size.y / 2.0;
+    */
+    let x0 = entity.transform.position.x;
+    let y0 = entity.transform.position.y;
+    let x1 = entity.transform.position.x + entity.transform.size.x;
+    let _y1 = entity.transform.position.y + entity.transform.size.y;
+
+    draw_collision_bounding_box(entity);
+
+    if x0 >= entity.terrain.len() as f32 {
+        return false;
+    } 
+    
+    if y0 < entity.terrain[x0 as usize] as f32 || y0 < entity.terrain[x1 as usize] as f32 {
+        info!("Collision detected at x: {}, y: {}", entity.transform.position.x, entity.transform.position.y);
+        return true;
+    }
+    false
+}
+
+fn draw_collision_bounding_box(entity: &Entity) -> () {
+    let camera = configure_camera();
+    set_camera(&camera);
+    let x0 = entity.transform.position.x;
+    let y0 = entity.transform.position.y;
+    let _x1 = entity.transform.position.x + entity.transform.size.x;
+    let _y1 = entity.transform.position.y + entity.transform.size.y;
+
+    draw_rectangle_lines(x0, y0, entity.transform.size.x, entity.transform.size.y, 2.0, RED); 
+    set_default_camera()   
 }
 
  // Main game loop
@@ -280,23 +395,6 @@ async fn main() {
     let mut audio = load_audio();
     let mut entities = Vec::new();
     add_lander_entity(&mut entities).await;
-
-    let num_points = 1000;
-    let min_height = 0.0;
-    let max_height = 100.0;
-    let base_frequency = 0.01;
-    let octaves = 6;
-    let persistence = 0.5;
-
-    let mut terrain = surface::generate_terrain(num_points, min_height, max_height, base_frequency, octaves, persistence);
-
-    // Add random flat spots for landing
-    let min_flat_length = 20;
-    let max_flat_length = 40;
-    let num_flat_spots = 5;
-    let y_offset = screen_height() as f64 - max_height;
-    
-    surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
 
     loop {
         clear_background(BLACK);
@@ -311,20 +409,6 @@ async fn main() {
 
         // Render systems
         render(&entities);
-
-        // plot surface
-        for i in 0..(terrain.len() - 1) {
-            draw_line(
-                i as f32,
-                (terrain[i] + y_offset) as f32,
-                (i + 1) as f32,
-                (terrain[i + 1] + y_offset) as f32,
-                2.0,
-                DARKGREEN,
-            );
-        }
-
-        update_audio(&mut audio);
 
         // Pause for the next frame
         sleep(std::time::Duration::from_millis(MILLIS_DELAY));
