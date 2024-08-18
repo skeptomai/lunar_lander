@@ -75,34 +75,6 @@ struct Entity<'a> {
     dead: bool,
 }
 
-impl<'a> Entity<'a> {
-    fn new() -> Self {
-        Self {
-            transform: Transform {
-                size: vec2(0.0,0.0),
-                position: vec2(0.0, 0.0),
-                rotation: 0.0,
-            },
-            terrain: Vec::new(),
-            screen_fonts: Fonts::<'a>::default(),
-            physics: None,
-            renderer_lander: None,
-            renderer_lander_accel: None,
-            renderer_lander_high_accel: None,
-            input: None,
-            collision: None,
-            sound: true,
-            time_elapsed: 0,
-            show_debug_info: false,
-            mass_of_craft: 50000.0,
-            mass_of_fuel: 20000.0,
-            mass_flow_rate: 50.0,
-            exhaust_velocity: 300.0,
-            dead: false,
-        }
-    }
-}
-
 // Define systems
 fn update_physics(entities: &mut Vec<Entity>) {
     for entity in entities {
@@ -116,7 +88,7 @@ fn update_physics(entities: &mut Vec<Entity>) {
             entity.transform.position += physics.velocity * get_frame_time();
             entity.transform.position.x = entity.transform.position.x.rem_euclid(screen_width());
             entity.transform.position.y = entity.transform.position.y.rem_euclid(screen_height());
-            entity.time_elapsed += frame_time as i32;
+            entity.time_elapsed += 1;
             entity.mass_of_fuel -= entity.mass_flow_rate;
         }
     }
@@ -250,11 +222,11 @@ fn draw_alert_box(entity: &Entity) {
     let screen_width = screen_width();
     let screen_height = screen_height();
     let box_x = (screen_width - ALERT_BOX_WIDTH) / 2.0;
-    let box_y = (screen_height - ALERT_BOX_HEIGHT) / 2.0;
+    let box_y = (screen_height - ALERT_BOX_HEIGHT) / 2.5;
 
-    draw_rectangle(box_x, box_y, ALERT_BOX_WIDTH, ALERT_BOX_HEIGHT, GRAY);
-    fonts.draw_text("Mission Failed!", box_x + 20.0, box_y + 40.0, 30.0, RED);
-    fonts.draw_text("Press R to Restart", box_x + 20.0, box_y + 70.0, 20.0, WHITE);
+    draw_rectangle(box_x, box_y, ALERT_BOX_WIDTH, ALERT_BOX_HEIGHT, LIGHTGRAY);
+    fonts.draw_text("Mission Failed!", box_x + 40.0, box_y + 20.0, 30.0, RED);
+    fonts.draw_text("Press R to Restart", box_x + 60.0, box_y + 70.0, 20.0, WHITE);
 }
 
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
@@ -416,7 +388,8 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let fonts = load_fonts();
     let tex_center = vec2(-lander_texture_size.x / 2.0, lander_texture_size.y / 2.0);
 
-    // Create entities
+    // Create lander
+
     let lander = Entity {
         transform: Transform {
             size: lander_texture_size,
