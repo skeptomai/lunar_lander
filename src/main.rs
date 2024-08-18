@@ -214,7 +214,10 @@ fn render(entities: &Vec<Entity>) {
             }
 
             set_default_camera();
-            if !entity.dead {
+            
+            if entity.dead {
+                draw_alert_box(entity);
+            } else {
                 draw_text(&entity);
             }
         }
@@ -309,26 +312,6 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         if audio.is_playing() {
             shutdown_audio(audio);
         }
-    }
-
-    // Check for collision
-    if check_collision(lander) {
-        debug!("Collision Detected!");
-        draw_alert_box(lander);
-        stop_lander(lander);
-        shutdown_audio(audio);
-        lander.sound = false;
-        lander.dead = true;
-    }
-
-    // Check for empty fuel
-    if lander.mass_of_fuel <= 0.0 {
-        debug!("Out of fuel!");
-        draw_alert_box(lander);
-        stop_lander(lander);
-        shutdown_audio(audio);
-        lander.sound = false;
-        lander.dead = true;
     }
 }
 
@@ -534,8 +517,28 @@ async fn main() {
         // Handle input
         handle_input(lander, &mut audio);
 
-        // Update systems
-        update_physics(&mut entities);
+        if !lander.dead {        
+            // Check for collision
+            if check_collision(lander) {
+                debug!("Collision Detected!");
+                stop_lander(lander);
+                shutdown_audio(&mut audio);
+                lander.sound = false;
+                lander.dead = true;
+            }
+
+            // Check for empty fuel
+            if lander.mass_of_fuel <= 0.0 {
+                debug!("Out of fuel!");
+                stop_lander(lander);
+                shutdown_audio(&mut audio);
+                lander.sound = false;
+                lander.dead = true;
+            }
+
+            // Update systems
+            update_physics(&mut entities);
+        }
 
         // Render systems
         render(&entities);
