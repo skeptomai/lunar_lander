@@ -21,6 +21,10 @@ const TEXTURE_SCALE_Y: f32 = 0.5;
 const TERRAIN_Y_OFFSET: f64 = 75.0;
 const ALERT_BOX_WIDTH: f32 = 300.0;
 const ALERT_BOX_HEIGHT: f32 = 100.0;
+// acceleration due to gravity on earth
+//const ACCEL_GRAV_Y: f32 = 9.8;
+// acceleration due to gravity on the moon
+const ACCEL_GRAV_Y: f32 = 1.625;
 
 #[derive(Debug)]
 struct Line {
@@ -39,7 +43,6 @@ struct Physics {
     velocity: Vec2,
     acceleration: Vec2,
 }
-
 struct Renderer {
     texture: Texture2D,
     // Other rendering properties
@@ -66,6 +69,10 @@ struct Entity<'a> {
     time_elapsed: i32,
     fuel: f64,
     show_debug_info: bool,
+    mass_of_craft: f64,
+    mass_of_fuel: f64,
+    mass_flow_rate: f64,
+    exhaust_velocity: f64,
 }
 
 impl<'a> Entity<'a> {
@@ -88,6 +95,10 @@ impl<'a> Entity<'a> {
             time_elapsed: 0,
             fuel: 1000.0,
             show_debug_info: false,
+            mass_of_craft: 500000.0,
+            mass_of_fuel: 500000.0,
+            mass_flow_rate: 500.0,
+            exhaust_velocity: 300.0,
         }
     }
 }
@@ -97,7 +108,7 @@ fn update_physics(entities: &mut Vec<Entity>) {
     for entity in entities {
         if let Some(physics) = &mut entity.physics {
             physics.velocity.x = physics.velocity.x + physics.acceleration.x * get_frame_time();
-            physics.velocity.y = physics.velocity.y + physics.acceleration.y * get_frame_time();
+            physics.velocity.y = physics.velocity.y + (physics.acceleration.y - ACCEL_GRAV_Y) * get_frame_time();
             entity.transform.position += physics.velocity * get_frame_time();
             entity.transform.position.x = entity.transform.position.x.rem_euclid(screen_width());
             entity.transform.position.y = entity.transform.position.y.rem_euclid(screen_height());
@@ -105,6 +116,41 @@ fn update_physics(entities: &mut Vec<Entity>) {
             entity.fuel -= 0.1;
         }
     }
+}
+
+/// Calculates the new mass and velocity of the rocket.
+///
+/// # Arguments
+///
+/// * `current_mass` - The current mass of the rocket (kg).
+/// * `mass_flow_rate` - The rate at which mass is lost (kg/s).
+/// * `current_velocity` - The current velocity of the rocket (m/s).
+/// * `time_step` - The time step over which the mass is reduced (s).
+/// * `exhaust_velocity` - The effective exhaust velocity (m/s).
+///
+/// # Returns
+///
+/// * `(new_mass, new_velocity)` - The new mass and velocity of the rocket.
+pub fn update_mass_and_velocity(
+    current_mass: f64,
+    mass_flow_rate: f64,
+    current_velocity: f64,
+    time_step: f64,
+    exhaust_velocity: f64,
+) -> (f64, f64) {
+    // Calculate the new mass after the time step
+    let new_mass = current_mass - mass_flow_rate * time_step;
+
+    // Ensure new_mass is not negative
+    let new_mass = if new_mass < 0.0 { 0.0 } else { new_mass };
+
+    // Calculate the change in velocity using Tsiolkovsky's equation
+    let delta_v = exhaust_velocity * (current_mass / new_mass).ln();
+
+    // Calculate the new velocity
+    let new_velocity = current_velocity + delta_v + (1.625 * time_step);
+
+    (new_mass, new_velocity)
 }
 
 fn render(entities: &Vec<Entity>) {
@@ -224,14 +270,19 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         lander.transform.rotation = (lander.transform.rotation + ROTATION_INCREMENT).rem_euclid(FULL_CIRCLE_DEGREES) as f32;
     }
     if is_key_down(KeyCode::Up){
+
         // accelerate lander
+        // Get the angle of the lander
         if let Some(phys) = lander.physics.as_mut() {
             let angle = lander.transform.rotation.to_radians();
-            let inc_acceleration = vec2(ACCEL_INCREMENT * angle.cos(), ACCEL_INCREMENT * angle.sin());
-
-            phys.acceleration = phys.acceleration + inc_acceleration;
-            phys.acceleration.x = phys.acceleration.x.min(MAX_ACCEL_X);
-            phys.acceleration.y = phys.acceleration.y.min(MAX_ACCEL_Y);
+            update_increment_acceleration(angle, phys);
+            let current_mass = lander.mass_of_craft + lander.mass_of_fuel;
+            let mass_flow_rate = lander.mass_flow_rate;
+            let current_velocity = phys.velocity.y;
+            let time_step = get_frame_time();
+            let exhaust_velocity = lander.exhaust_velocity;
+            let (_current_mass, _current_velocity) = update_mass_and_velocity(current_mass, mass_flow_rate, current_velocity.into(), 
+                time_step.into(), exhaust_velocity);
             audio.play("acceleration");
         }
     }
@@ -258,7 +309,18 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         debug!("Collision Detected!");
         draw_alert_box(lander);
         stop_lander(lander);
+        shutdown_audio(audio);
+        lander.sound = false;
     }
+}
+
+fn update_increment_acceleration(angle: f32, phys: &mut Physics) {
+    // Increment acceleration in the direction of the lander
+    let inc_acceleration = vec2(ACCEL_INCREMENT * angle.cos(), ACCEL_INCREMENT * angle.sin());
+
+    phys.acceleration = phys.acceleration + inc_acceleration;
+    phys.acceleration.x = phys.acceleration.x.min(MAX_ACCEL_X);
+    phys.acceleration.y = phys.acceleration.y.min(MAX_ACCEL_Y);
 }
 
 fn stop_lander(lander: &mut Entity) {
@@ -381,6 +443,10 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         time_elapsed: 0,
         fuel: 1000.0,
         show_debug_info: false,
+        exhaust_velocity: 300.0,
+        mass_of_craft: 500000.0,
+        mass_of_fuel: 500000.0,
+        mass_flow_rate: 500.0,
     };
 
     entities.push(lander);
@@ -389,7 +455,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
 fn update_audio(audio: &mut Audio) {
     if !audio.is_playing() {
-        debug!("Updating Playing audio");
+        debug!("Audio is playing. Updating audio.");
         audio.play("ambient"); // Execution continues while playback occurs in another thread.
     }
 }
@@ -443,13 +509,13 @@ async fn main() {
     loop {
         clear_background(BLACK);
 
-        // Update systems
-        update_physics(&mut entities);
-
         let lander: &mut Entity = entities.first_mut().unwrap();
 
         // Handle input
         handle_input(lander, &mut audio);
+
+        // Update systems
+        update_physics(&mut entities);
 
         // Render systems
         render(&entities);
@@ -460,3 +526,43 @@ async fn main() {
         next_frame().await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_update_mass_and_velocity() {
+        let mass_rocket = 500000.0;
+        let starting_mass_fuel = 500000.0;
+        let mass_flow_rate = 500.0;
+        let mut current_velocity = 0.0;
+        let time_step = 1.0;
+        let exhaust_velocity = 300.0;
+
+        let mut current_mass = mass_rocket + starting_mass_fuel;
+
+        loop {
+            let (new_mass, new_velocity) =
+                update_mass_and_velocity(current_mass, mass_flow_rate, current_velocity, time_step, exhaust_velocity);
+            
+            if new_mass <= mass_rocket {
+                println!("Rocket has run out of fuel!");
+                break;
+            }
+
+            println!("current mass: {}, current velocity: {},  new_mass: {}, new_velocity: {}", 
+                current_mass, current_velocity,
+                new_mass, new_velocity);
+    
+            assert!(new_mass < current_mass);
+            assert!(new_velocity > current_velocity);
+        
+            current_mass = new_mass;
+            current_velocity = new_velocity;
+
+        }
+
+    }
+}
+
