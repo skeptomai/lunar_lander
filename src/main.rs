@@ -67,12 +67,12 @@ struct Entity<'a> {
     collision: Option<Collision>,
     sound: bool,
     time_elapsed: i32,
-    fuel: f64,
     show_debug_info: bool,
     mass_of_craft: f64,
     mass_of_fuel: f64,
     mass_flow_rate: f64,
     exhaust_velocity: f64,
+    dead: bool,
 }
 
 impl<'a> Entity<'a> {
@@ -93,12 +93,12 @@ impl<'a> Entity<'a> {
             collision: None,
             sound: true,
             time_elapsed: 0,
-            fuel: 1000.0,
             show_debug_info: false,
-            mass_of_craft: 500000.0,
-            mass_of_fuel: 500000.0,
-            mass_flow_rate: 500.0,
+            mass_of_craft: 50000.0,
+            mass_of_fuel: 20000.0,
+            mass_flow_rate: 50.0,
             exhaust_velocity: 300.0,
+            dead: false,
         }
     }
 }
@@ -106,14 +106,18 @@ impl<'a> Entity<'a> {
 // Define systems
 fn update_physics(entities: &mut Vec<Entity>) {
     for entity in entities {
+        if entity.dead {
+            continue;
+        }
         if let Some(physics) = &mut entity.physics {
-            physics.velocity.x = physics.velocity.x + physics.acceleration.x * get_frame_time();
-            physics.velocity.y = physics.velocity.y + (physics.acceleration.y - ACCEL_GRAV_Y) * get_frame_time();
+            let frame_time = 0.1;
+            physics.velocity.x = physics.velocity.x + physics.acceleration.x * frame_time;
+            physics.velocity.y = physics.velocity.y + (physics.acceleration.y - ACCEL_GRAV_Y) * frame_time;
             entity.transform.position += physics.velocity * get_frame_time();
             entity.transform.position.x = entity.transform.position.x.rem_euclid(screen_width());
             entity.transform.position.y = entity.transform.position.y.rem_euclid(screen_height());
-            entity.time_elapsed += 1;
-            entity.fuel -= 0.1;
+            entity.time_elapsed += frame_time as i32;
+            entity.mass_of_fuel -= entity.mass_flow_rate;
         }
     }
 }
@@ -210,7 +214,9 @@ fn render(entities: &Vec<Entity>) {
             }
 
             set_default_camera();
-            draw_text(&entity);
+            if !entity.dead {
+                draw_text(&entity);
+            }
         }
     }
 }
@@ -222,7 +228,7 @@ fn draw_text(entity: &Entity) {
     let time_elapsed_text = format!("TIME {}", entity.time_elapsed);
     fonts.draw_text("SCORE", 20.0, 0.0, 15.0, Color::from([1.0; 4]));
     fonts.draw_text(&time_elapsed_text, 20.0, 20.0, 15.0, Color::from([1.0; 4]));
-    let fuel_text = format!("FUEL: {:.2}", entity.fuel);
+    let fuel_text = format!("FUEL: {:.2}", entity.mass_of_fuel);
     fonts.draw_text(&fuel_text, 20.0, 40.0, 15.0, Color::from([1.0; 4]));
 
     let w = macroquad::window::screen_width();
@@ -251,7 +257,8 @@ fn draw_alert_box(entity: &Entity) {
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
     // Handle input
     if is_key_down(KeyCode::R) {
-        reset_lander(lander);
+        reset_lander(lander);        
+        update_audio(audio);
     }
     if is_key_down(KeyCode::Escape) {
         // Exit game
@@ -311,6 +318,17 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         stop_lander(lander);
         shutdown_audio(audio);
         lander.sound = false;
+        lander.dead = true;
+    }
+
+    // Check for empty fuel
+    if lander.mass_of_fuel <= 0.0 {
+        debug!("Out of fuel!");
+        draw_alert_box(lander);
+        stop_lander(lander);
+        shutdown_audio(audio);
+        lander.sound = false;
+        lander.dead = true;
     }
 }
 
@@ -346,8 +364,10 @@ fn reset_lander(lander: &mut Entity) {
         velocity: vec2(0.0, 0.0),
         acceleration: vec2(0.0, 0.0),
     });
-    lander.fuel = 1000.0;
     lander.time_elapsed = 0;
+    lander.mass_of_fuel = 20000.0;
+    lander.sound = true;
+    lander.dead = false;
 }
 
 fn load_fonts<'a>() -> Fonts<'a> {
@@ -441,12 +461,12 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         }),
         sound: true,
         time_elapsed: 0,
-        fuel: 1000.0,
         show_debug_info: false,
         exhaust_velocity: 300.0,
-        mass_of_craft: 500000.0,
-        mass_of_fuel: 500000.0,
-        mass_flow_rate: 500.0,
+        mass_of_craft: 50000.0,
+        mass_of_fuel: 20000.0,
+        mass_flow_rate: 50.0,
+        dead: false,
     };
 
     entities.push(lander);
