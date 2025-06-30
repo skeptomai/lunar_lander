@@ -69,6 +69,7 @@ struct Entity<'a> {
     time_elapsed: f32,
     show_debug_info: bool,
     dead: bool,
+    current_audio: Option<String>,
 }
 
 // Define systems
@@ -137,8 +138,7 @@ pub fn update_mass_and_velocity(
     (new_mass, new_velocity)
 }
 
-fn render(entities: &Vec<Entity>) {
-    let camera = configure_camera();
+fn render(entities: &Vec<Entity>, camera: &Camera2D) {
 
     for entity in entities {
         set_default_camera();
@@ -155,7 +155,7 @@ fn render(entities: &Vec<Entity>) {
                     debug!("is_thrusting: {}", rocket.is_thrusting);
                     debug!("fuel_percentage: {:.1}%", rocket.fuel_percentage());
                 }
-                draw_collision_bounding_box(entity);
+                draw_collision_bounding_box(entity, camera);
             }
 
             // Choose lander texture based on thrust status
@@ -185,7 +185,7 @@ fn render(entities: &Vec<Entity>) {
             };
 
             if let Some(renderer) = o_renderer {
-                set_camera(&camera);
+                set_camera(camera);
                 draw_texture_ex(&renderer.texture,
                                 entity.transform.position.x,
                                 entity.transform.position.y,
@@ -202,18 +202,28 @@ fn render(entities: &Vec<Entity>) {
 
             }
 
-            // plot surface - convert world coordinates to camera coordinates for rendering
+            // plot surface - convert terrain world coordinates to camera coordinates
             for i in 0..(entity.terrain.len() - 1) {
-                // Terrain is stored in world coordinates, convert to camera coordinates for rendering
-                // transform_axes converts world -> screen, camera needs same conversion
-                let terrain_point_1 = transform_axes(vec2(i as f32, entity.terrain[i] as f32));
-                let terrain_point_2 = transform_axes(vec2((i + 1) as f32, entity.terrain[i + 1] as f32));
+                // Terrain is stored in world coordinates, but camera has limited coordinate range
+                // Camera zoom: 2.0/screen_width means camera X range is roughly -400 to +400 for 800px screen
+                // Camera zoom: -2.0/screen_height means camera Y range is roughly -300 to +300 for 600px screen
+                // Terrain X: 0-1000 needs to map to camera X range
+                // Terrain Y: world coordinates already correct
+                
+                let screen_width = macroquad::window::screen_width();
+                let screen_height = macroquad::window::screen_height();
+                
+                // Map terrain X from array index (0-1000) to camera X coordinate range
+                let camera_x1 = (i as f32 - 500.0) * screen_width / 1000.0; // Center terrain horizontally
+                let camera_y1 = entity.terrain[i] as f32;
+                let camera_x2 = ((i + 1) as f32 - 500.0) * screen_width / 1000.0;
+                let camera_y2 = entity.terrain[i + 1] as f32;
                 
                 draw_line(
-                    terrain_point_1.x,
-                    terrain_point_1.y,
-                    terrain_point_2.x,
-                    terrain_point_2.y,
+                    camera_x1,
+                    camera_y1,
+                    camera_x2,
+                    camera_y2,
                     2.0,
                     DARKGREEN,
                 );
@@ -312,6 +322,9 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
     }
 
     // Improved thrust handling using proper rocket physics
+    let mut should_play_thrust = false;
+    let mut should_play_ambient = false;
+    
     if let Some(rocket) = &mut lander.rocket_physics {
         if is_key_down(KeyCode::Up) && rocket.has_fuel() {
             // Calculate thrust direction based on lander orientation
@@ -321,36 +334,43 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
             // Apply thrust vector (magnitude determined by max_thrust)
             rocket.thrust_vector = thrust_direction * rocket.max_thrust as f32;
             rocket.is_thrusting = true;
-
-            // Only start thrust audio if not already playing
-            if !audio.is_playing() {
-                audio.play("acceleration");
-            }
+            should_play_thrust = true;
         } else {
             // Stop thrusting
             rocket.stop_thrust();
-            shutdown_audio(audio);
+            should_play_ambient = lander.sound;
         }
+    } else {
+        should_play_ambient = lander.sound;
     }
 
     if is_key_released(KeyCode::D) {
         lander.show_debug_info = !lander.show_debug_info;
     }
 
-    // Handle ambient audio separately from thrust audio
-    if lander.sound {
-        // Only play ambient when not thrusting
-        if let Some(rocket) = &lander.rocket_physics {
-            if !rocket.is_thrusting {
-                update_audio(audio);
-            }
-        } else {
-            update_audio(audio);
-        }
+    // Unified audio management with state tracking
+    let desired_audio = if should_play_thrust {
+        Some("acceleration".to_string())
+    } else if should_play_ambient {
+        Some("ambient".to_string())
     } else {
+        None
+    };
+
+    // Only change audio if the desired state is different
+    if lander.current_audio != desired_audio {
+        // Stop current audio
         if audio.is_playing() {
             shutdown_audio(audio);
         }
+        
+        // Start new audio if needed
+        if let Some(audio_name) = &desired_audio {
+            audio.play(audio_name);
+        }
+        
+        // Update state
+        lander.current_audio = desired_audio;
     }
 }
 
@@ -403,6 +423,7 @@ fn reset_lander(lander: &mut Entity) {
     lander.time_elapsed = 0.0;
     lander.sound = true;
     lander.dead = false;
+    lander.current_audio = None;
 }
 
 fn load_fonts<'a>() -> Fonts<'a> {
@@ -465,8 +486,8 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     // For terrain at screen_y=175: world_y = 300 - 175 = 125 (WRONG! Still positive)
     // Actually: terrain values are offsets from 0, need to adjust
     // If terrain offset=175 represents "near bottom of screen", that should be screen_y ~ 500
-    // Let's map terrain 75-175 to screen_y range 400-500 (bottom portion)
-    let terrain_screen_base = screen_height * 0.7; // Start terrain at 70% down screen
+    // Map terrain to bottom portion of screen for proper gameplay
+    let terrain_screen_base = screen_height * 0.8; // Start terrain at 80% down screen
     terrain.iter_mut().for_each(|h| {
         let screen_y = terrain_screen_base + (*h - TERRAIN_Y_OFFSET); // Map terrain to screen Y
         *h = screen_height / 2.0 - screen_y; // Convert screen Y to world Y
@@ -528,6 +549,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         time_elapsed: 0.0,
         show_debug_info: false,
         dead: false,
+        current_audio: None,
     };
 
     entities.push(lander);
@@ -550,7 +572,7 @@ fn check_collision(entity: &Entity) -> bool {
     // - World coordinates: (0,0) at screen center, positive Y = up, negative Y = down
     // - Lander position stored in screen coordinates, convert to world coordinates
     // - Terrain stored in world coordinates
-    // - All collision logic in world coordinates only
+
 
     let screen_width = macroquad::window::screen_width();
     let screen_height = macroquad::window::screen_height();
@@ -597,7 +619,7 @@ fn check_collision(entity: &Entity) -> bool {
     false
 }
 
-fn draw_collision_bounding_box(entity: &Entity) -> () {
+fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     // Draw in screen coordinates first (where the lander actually is)
     set_default_camera();
 
@@ -619,8 +641,7 @@ fn draw_collision_bounding_box(entity: &Entity) -> () {
               lander_screen_x + lander_width, lander_bottom_y + COLLISION_MARGIN, 1.0, ORANGE);
 
     // Now draw terrain collision points in camera coordinates
-    let camera = configure_camera();
-    set_camera(&camera);
+    set_camera(camera);
 
     // Convert to world coordinates for terrain sampling (using same logic as collision detection)
     let screen_width = macroquad::window::screen_width();
@@ -681,7 +702,9 @@ async fn main() {
         }
 
         // Render systems
-        render(&entities);
+        // Create camera once at start of main loop
+        let camera = configure_camera();
+        render(&entities, &camera);
 
         // Pause for the next frame
         sleep(std::time::Duration::from_millis(MILLIS_DELAY));
