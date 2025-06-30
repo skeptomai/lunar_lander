@@ -405,9 +405,15 @@ fn reset_lander(lander: &mut Entity) {
     // If terrain max is ~175, position lander bottom at camera Y = 50 (well above terrain)
     // Since transform_axes inverts Y, need positive world Y to get negative camera Y
     let initial_world_pos = vec2(0.0, 50.0);  // Positive world Y for safe camera position
+    
+    // Center the rocket by offsetting by half texture size
     let tex_center = initial_world_pos;
-
-    lander.transform.position = transform_axes(tex_center);
+    let screen_center = transform_axes(tex_center);
+    let lander_size = lander.transform.size;
+    lander.transform.position = vec2(
+        screen_center.x - lander_size.x / 2.0,
+        screen_center.y - lander_size.y / 2.0
+    );
     lander.transform.rotation = 90.0;
     lander.physics = Some(Physics {
         velocity: vec2(0.0, 0.0),
@@ -514,15 +520,21 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     // Need lander to start with bottom above terrain level
     // If terrain max is ~175, position lander bottom at camera Y = 50 (well above terrain)
     // Since transform_axes inverts Y, need positive world Y to get negative camera Y
-    let initial_world_pos = vec2(0.0, 150.0);  // Positive world Y for safe camera position
-    let tex_center = initial_world_pos;
+    let initial_world_pos = vec2(0.0, 50.0);  // Positive world Y for safe camera position
+    
+    // Center the rocket by offsetting by half texture size
+    let screen_center = transform_axes(initial_world_pos);
+    let centered_position = vec2(
+        screen_center.x - _lander_texture_size.x / 2.0,
+        screen_center.y - _lander_texture_size.y / 2.0
+    );
 
     // Create lander
 
     let lander = Entity {
         transform: Transform {
             size: _lander_texture_size,
-            position: transform_axes(tex_center),
+            position: centered_position,
             rotation: 90.0,
         },
         terrain: terrain,
