@@ -213,10 +213,13 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 let screen_width = macroquad::window::screen_width();
                 let screen_height = macroquad::window::screen_height();
                 
-                // Map terrain X from array index (0-1000) to camera X coordinate range
-                let camera_x1 = (i as f32 - 500.0) * screen_width / 1000.0; // Center terrain horizontally
+                // Map terrain X from array index (0-1000) to full camera X coordinate range
+                // Camera zoom is 2.0/screen_width, so visible range is from -1.0 to +1.0 in normalized coords
+                // But we want to use the full screen, so map 0-1000 to -screen_width to +screen_width
+                let x_range = screen_width * 2.0; // Full range across screen
+                let camera_x1 = (i as f32 / 1000.0) * x_range - screen_width;
                 let camera_y1 = entity.terrain[i] as f32;
-                let camera_x2 = ((i + 1) as f32 - 500.0) * screen_width / 1000.0;
+                let camera_x2 = ((i + 1) as f32 / 1000.0) * x_range - screen_width;
                 let camera_y2 = entity.terrain[i + 1] as f32;
                 
                 draw_line(
@@ -400,11 +403,8 @@ fn reset_lander(lander: &mut Entity) {
     let lander_texture = &lander.renderer_lander.as_ref().unwrap().texture;
     let _lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
     // Position lander safely above terrain
-    // Terrain is around 75-175, lander bottom currently at -254 is way below terrain at 121
-    // Need lander to start with bottom above terrain level
-    // If terrain max is ~175, position lander bottom at camera Y = 50 (well above terrain)
-    // Since transform_axes inverts Y, need positive world Y to get negative camera Y
-    let initial_world_pos = vec2(0.0, 50.0);  // Positive world Y for safe camera position
+    // Terrain is at Y: 60-100, so position lander above at Y: 130
+    let initial_world_pos = vec2(0.0, 130.0);
     
     // Center the rocket by offsetting by half texture size
     let tex_center = initial_world_pos;
@@ -476,27 +476,10 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
     let mut terrain = surface::generate_terrain(num_points, min_height, max_height, base_frequency, octaves, persistence);
     
-    // Convert terrain to world coordinates
-    // Generated terrain: 0-100, offset to 75-175
-    // World coordinates: positive Y = up, negative Y = down, (0,0) = screen center
-    // Terrain should be below world center, so convert to negative world Y values
-    terrain.iter_mut().for_each(|h| *h = *h + TERRAIN_Y_OFFSET); // First apply offset: 75-175
-    let screen_height = 600.0; // Will be actual screen height at runtime
-    // Terrain at bottom of screen should be at world Y = -screen_height/2
-    // Convert: screen_y -> world_y using reverse of transform_axes
-    // transform_axes: world_y -> screen_y = -world_y + screen_height/2
-    // So: world_y = screen_height/2 - screen_y
-    // Convert screen coordinates to world coordinates using transform_axes reverse
-    // transform_axes: screen_y = -world_y + screen_height/2
-    // So: world_y = screen_height/2 - screen_y 
-    // For terrain at screen_y=175: world_y = 300 - 175 = 125 (WRONG! Still positive)
-    // Actually: terrain values are offsets from 0, need to adjust
-    // If terrain offset=175 represents "near bottom of screen", that should be screen_y ~ 500
-    // Map terrain to bottom portion of screen for proper gameplay
-    let terrain_screen_base = screen_height * 0.8; // Start terrain at 80% down screen
+    // Convert terrain to visible coordinates for camera rendering
+    // Keep terrain in visible range: Y: 60-100 (these show up at bottom of screen)
     terrain.iter_mut().for_each(|h| {
-        let screen_y = terrain_screen_base + (*h - TERRAIN_Y_OFFSET); // Map terrain to screen Y
-        *h = screen_height / 2.0 - screen_y; // Convert screen Y to world Y
+        *h = *h * 0.4 + 60.0; // Scale 0-100 to 0-40, then offset to 60-100
     });
 
     // Add random flat spots for landing
@@ -516,11 +499,8 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
     let fonts = load_fonts();
     // Position lander safely above terrain
-    // Terrain is around 75-175, lander bottom currently at -254 is way below terrain at 121
-    // Need lander to start with bottom above terrain level
-    // If terrain max is ~175, position lander bottom at camera Y = 50 (well above terrain)
-    // Since transform_axes inverts Y, need positive world Y to get negative camera Y
-    let initial_world_pos = vec2(0.0, 50.0);  // Positive world Y for safe camera position
+    // Terrain is at Y: 60-100, so position lander above at Y: 130
+    let initial_world_pos = vec2(0.0, 130.0);
     
     // Center the rocket by offsetting by half texture size
     let screen_center = transform_axes(initial_world_pos);
