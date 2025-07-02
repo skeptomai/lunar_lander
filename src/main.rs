@@ -403,8 +403,8 @@ fn reset_lander(lander: &mut Entity) {
     let lander_texture = &lander.renderer_lander.as_ref().unwrap().texture;
     let _lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
     // Position lander safely above terrain
-    // Terrain is at Y: 60-100, so position lander above at Y: 130
-    let initial_world_pos = vec2(0.0, 130.0);
+    // Terrain is at Y: 60-100, so position lander above at Y: 50 (or lower)
+    let initial_world_pos = vec2(0.0, 50.0);
     
     // Center the rocket by offsetting by half texture size
     let tex_center = initial_world_pos;
@@ -499,9 +499,9 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
     let fonts = load_fonts();
     // Position lander safely above terrain in camera coordinates
-    // Camera has inverted Y axis: terrain Y=60-100 is near bottom, so position lander above at Y=30
+    // Camera has inverted Y axis: terrain Y=60-100 is near bottom, so position lander above at Y=-50
     // Camera coordinates: (0,0) at screen center, Y decreases upward due to inverted zoom
-    let initial_camera_pos = vec2(0.0, 30.0); // Above terrain which is at Y=60-100
+    let initial_camera_pos = vec2(0.0, -50.0); // Above terrain which is at Y=60-100
     
     // Center the rocket by offsetting by half texture size
     let centered_position = vec2(
