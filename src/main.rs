@@ -329,7 +329,7 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
     let mut should_play_ambient = false;
     
     if let Some(rocket) = &mut lander.rocket_physics {
-        if is_key_down(KeyCode::Up) && rocket.has_fuel() {
+        if is_key_down(KeyCode::Up) && rocket.has_fuel() && !lander.dead {
             // Calculate thrust direction based on lander orientation
             let angle = lander.transform.rotation.to_radians();
             let thrust_direction = vec2(angle.cos(), angle.sin());
@@ -498,15 +498,15 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let _lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
 
     let fonts = load_fonts();
-    // Position lander safely above terrain
-    // Terrain is at Y: 60-100, so position lander above at Y: 130
-    let initial_world_pos = vec2(0.0, 130.0);
+    // Position lander safely above terrain in camera coordinates
+    // Camera has inverted Y axis: terrain Y=60-100 is near bottom, so position lander above at Y=30
+    // Camera coordinates: (0,0) at screen center, Y decreases upward due to inverted zoom
+    let initial_camera_pos = vec2(0.0, 30.0); // Above terrain which is at Y=60-100
     
     // Center the rocket by offsetting by half texture size
-    let screen_center = transform_axes(initial_world_pos);
     let centered_position = vec2(
-        screen_center.x - _lander_texture_size.x / 2.0,
-        screen_center.y - _lander_texture_size.y / 2.0
+        initial_camera_pos.x - _lander_texture_size.x / 2.0,
+        initial_camera_pos.y - _lander_texture_size.y / 2.0
     );
 
     // Create lander
@@ -559,36 +559,36 @@ fn shutdown_audio(audio: &mut Audio) {
 }
 
 fn check_collision(entity: &Entity) -> bool {
-    // PURE WORLD COORDINATE COLLISION DETECTION
-    // Both lander and terrain are in world coordinates:
-    // - World coordinates: (0,0) at screen center, positive Y = up, negative Y = down
-    // - Lander position stored in screen coordinates, convert to world coordinates
-    // - Terrain stored in world coordinates
-
+    // CAMERA COORDINATE COLLISION DETECTION
+    // Both lander and terrain are already in camera coordinates:
+    // - Lander position: stored in camera coordinates (entity.transform.position)
+    // - Terrain Y values: stored directly as camera Y coordinates
+    // - Terrain X mapping: array indices 0-1000 map to camera X range
 
     let screen_width = macroquad::window::screen_width();
-    let screen_height = macroquad::window::screen_height();
-
-    // Convert lander from screen coordinates to world coordinates
-    // Reverse of transform_axes: screen -> world
-    let lander_screen_x = entity.transform.position.x;
-    let lander_screen_y = entity.transform.position.y;
-    let lander_world_x = lander_screen_x - screen_width / 2.0;
-    let lander_world_y = screen_height / 2.0 - lander_screen_y;
-
+    
+    // Lander position in camera coordinates (already correct)
+    let lander_x = entity.transform.position.x;
+    let lander_y = entity.transform.position.y;
     let lander_width = entity.transform.size.x;
     let lander_height = entity.transform.size.y;
     
-    // Calculate lander bottom in world coordinates
-    // In world coordinates: negative Y = down, so bottom = top - height
-    let lander_bottom_world_y = lander_world_y - lander_height;
+    // Calculate lander bottom in camera coordinates
+    // In camera coordinates: Y increases downward, so bottom = top + height
+    let lander_bottom_y = lander_y + lander_height;
 
-    // Find terrain X range to check (terrain array indices match world X coordinates)
-    let terrain_start_x = ((lander_world_x - lander_width/2.0) as i32).max(0) as usize;
-    let terrain_end_x = ((lander_world_x + lander_width/2.0) as i32).min(entity.terrain.len() as i32 - 1) as usize;
+    // Convert lander camera X position to terrain array indices
+    // Reverse of terrain rendering: camera_x = (i / 1000.0) * (screen_width * 2.0) - screen_width
+    // So: i = (camera_x + screen_width) / (screen_width * 2.0) * 1000.0
+    let lander_left_x = lander_x;
+    let lander_right_x = lander_x + lander_width;
+    
+    // Convert to terrain array indices
+    let terrain_start_idx = (((lander_left_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32).max(0) as usize;
+    let terrain_end_idx = (((lander_right_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32).min(999) as usize;
 
     // Safety bounds check
-    if terrain_start_x >= entity.terrain.len() || terrain_end_x >= entity.terrain.len() {
+    if terrain_start_idx >= entity.terrain.len() || terrain_end_idx >= entity.terrain.len() {
         return false;
     }
 
@@ -596,14 +596,14 @@ fn check_collision(entity: &Entity) -> bool {
     const COLLISION_MARGIN: f32 = 3.0;
 
     // Check if lander bottom touches terrain
-    // Both in world coordinates: collision when lander_bottom <= terrain (since negative Y = down)
-    for i in terrain_start_x..=terrain_end_x {
-        let terrain_world_y = entity.terrain[i] as f32;
+    // Both in camera coordinates: collision when lander_bottom >= terrain (since Y increases downward)
+    for i in terrain_start_idx..=terrain_end_idx {
+        let terrain_y = entity.terrain[i] as f32;
 
-        if lander_bottom_world_y <= terrain_world_y + COLLISION_MARGIN {
-            info!("COLLISION: terrain_x={}, lander_bottom_world={:.1}, terrain_world_y={:.1}", i, lander_bottom_world_y, terrain_world_y);
-            info!("  World coords: lander=({:.1},{:.1}) bottom=({:.1},{:.1})", lander_world_x, lander_world_y, lander_world_x, lander_bottom_world_y);
-            info!("  Screen coords: lander=({:.1},{:.1}) screen_size=({:.1},{:.1})", lander_screen_x, lander_screen_y, screen_width, screen_height);
+        if lander_bottom_y >= terrain_y - COLLISION_MARGIN {
+            info!("COLLISION: terrain_idx={}, lander_bottom_y={:.1}, terrain_y={:.1}", i, lander_bottom_y, terrain_y);
+            info!("  Camera coords: lander=({:.1},{:.1}) bottom=({:.1},{:.1})", lander_x, lander_y, lander_x, lander_bottom_y);
+            info!("  Screen size: ({:.1},{:.1})", screen_width, macroquad::window::screen_height());
             return true;
         }
     }
@@ -612,40 +612,49 @@ fn check_collision(entity: &Entity) -> bool {
 }
 
 fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
-    // Draw in screen coordinates first (where the lander actually is)
-    set_default_camera();
+    // Draw in camera coordinates (same as where the lander is actually rendered)
+    set_camera(camera);
 
-    let lander_screen_x = entity.transform.position.x;
-    let lander_screen_y = entity.transform.position.y;
+    let lander_x = entity.transform.position.x;
+    let lander_y = entity.transform.position.y;
     let lander_width = entity.transform.size.x;
     let lander_height = entity.transform.size.y;
 
-    // Draw lander bounding box in screen coordinates
-    draw_rectangle_lines(lander_screen_x, lander_screen_y, lander_width, lander_height, 2.0, RED);
+    // Draw lander bounding box in camera coordinates (should exactly match the rocket texture)
+    draw_rectangle_lines(lander_x, lander_y, lander_width, lander_height, 2.0, RED);
 
-    // Highlight the bottom edge (critical for collision)
-    let lander_bottom_y = lander_screen_y + lander_height;
-    draw_line(lander_screen_x, lander_bottom_y, lander_screen_x + lander_width, lander_bottom_y, 3.0, YELLOW);
+    // Mark the four corners for debugging
+    // Note: In camera coordinates with macroquad, Y increases downward
+    draw_circle(lander_x, lander_y, 3.0, BLUE); // Top-left
+    draw_circle(lander_x + lander_width, lander_y, 3.0, GREEN); // Top-right  
+    draw_circle(lander_x, lander_y + lander_height, 3.0, YELLOW); // Bottom-left
+    draw_circle(lander_x + lander_width, lander_y + lander_height, 3.0, ORANGE); // Bottom-right
 
-    // Show collision margin
-    const COLLISION_MARGIN: f32 = 3.0;
-    draw_line(lander_screen_x, lander_bottom_y + COLLISION_MARGIN,
-              lander_screen_x + lander_width, lander_bottom_y + COLLISION_MARGIN, 1.0, ORANGE);
+    // Highlight the bottom edge (critical for collision) - this should be YELLOW
+    let lander_bottom_y = lander_y + lander_height;
+    draw_line(lander_x, lander_bottom_y, lander_x + lander_width, lander_bottom_y, 3.0, YELLOW);
+    
+    // Also highlight the top edge for comparison - this should be BLUE  
+    draw_line(lander_x, lander_y, lander_x + lander_width, lander_y, 3.0, BLUE);
 
     // Now draw terrain collision points in camera coordinates
     set_camera(camera);
 
-    // Convert to world coordinates for terrain sampling (using same logic as collision detection)
+    // Use same terrain index calculation as collision detection
     let screen_width = macroquad::window::screen_width();
-    let lander_world_x = lander_screen_x - screen_width / 2.0;
+    let lander_left_x = lander_x;
+    let lander_right_x = lander_x + lander_width;
+    
+    // Convert to terrain array indices (same as collision detection)
+    let terrain_start_idx = (((lander_left_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32).max(0) as usize;
+    let terrain_end_idx = (((lander_right_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32).min(999) as usize;
 
-    let terrain_start_x = ((lander_world_x - lander_width/2.0) as i32).max(0) as usize;
-    let terrain_end_x = ((lander_world_x + lander_width/2.0) as i32).min(entity.terrain.len() as i32 - 1) as usize;
-
-    if terrain_start_x < entity.terrain.len() && terrain_end_x < entity.terrain.len() {
-        for i in terrain_start_x..=terrain_end_x {
-            let terrain_height = entity.terrain[i] as f32;
-            draw_circle(i as f32, terrain_height, 3.0, Color::from([0.0, 1.0, 1.0, 1.0])); // Cyan
+    if terrain_start_idx < entity.terrain.len() && terrain_end_idx < entity.terrain.len() {
+        for i in terrain_start_idx..=terrain_end_idx {
+            let terrain_y = entity.terrain[i] as f32;
+            // Convert terrain index back to camera X coordinate for drawing
+            let terrain_camera_x = (i as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
+            draw_circle(terrain_camera_x, terrain_y, 3.0, Color::from([0.0, 1.0, 1.0, 1.0])); // Cyan
         }
     }
 
