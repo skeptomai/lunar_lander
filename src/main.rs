@@ -498,15 +498,20 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let _lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
 
     let fonts = load_fonts();
-    // Position lander safely above terrain in camera coordinates
-    // Camera has inverted Y axis: terrain Y=60-100 is near bottom, so position lander above at Y=-50
-    // Camera coordinates: (0,0) at screen center, Y decreases upward due to inverted zoom
+    // Position lander safely above terrain in camera coordinates 
+    // Camera coordinates: (0,0) at screen center, Y increases upward due to inverted zoom
     let initial_camera_pos = vec2(0.0, -50.0); // Above terrain which is at Y=60-100
+    
+    // Convert camera coordinates to screen coordinates (same as transform_axes)
+    let screen_pos = vec2(
+        initial_camera_pos.x + screen_width() / 2.0,
+        -initial_camera_pos.y + screen_height() / 2.0
+    );
     
     // Center the rocket by offsetting by half texture size
     let centered_position = vec2(
-        initial_camera_pos.x - _lander_texture_size.x / 2.0,
-        initial_camera_pos.y - _lander_texture_size.y / 2.0
+        screen_pos.x - _lander_texture_size.x / 2.0,
+        screen_pos.y - _lander_texture_size.y / 2.0
     );
 
     // Create lander
@@ -595,12 +600,12 @@ fn check_collision(entity: &Entity) -> bool {
     // Collision margin for forgiving gameplay
     const COLLISION_MARGIN: f32 = 3.0;
 
-    // Check if lander bottom touches terrain
-    // Both in camera coordinates: collision when lander_bottom >= terrain (since Y increases downward)
+    // Check if lander bottom touches terrain  
+    // Both in camera coordinates: collision when lander_bottom <= terrain (lander above/at terrain level)
     for i in terrain_start_idx..=terrain_end_idx {
         let terrain_y = entity.terrain[i] as f32;
 
-        if lander_bottom_y >= terrain_y - COLLISION_MARGIN {
+        if lander_bottom_y <= terrain_y + COLLISION_MARGIN {
             info!("COLLISION: terrain_idx={}, lander_bottom_y={:.1}, terrain_y={:.1}", i, lander_bottom_y, terrain_y);
             info!("  Camera coords: lander=({:.1},{:.1}) bottom=({:.1},{:.1})", lander_x, lander_y, lander_x, lander_bottom_y);
             info!("  Screen size: ({:.1},{:.1})", screen_width, macroquad::window::screen_height());
