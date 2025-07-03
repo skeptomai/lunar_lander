@@ -587,8 +587,8 @@ fn check_collision(entity: &Entity) -> CollisionType {
     let lander_height = entity.transform.size.y;
     
     // Calculate lander bottom in camera coordinates
-    // In camera coordinates: Y increases downward, so bottom = top + height
-    let lander_bottom_y = lander_y + lander_height;
+    // In camera coordinates: Y increases UPWARD (due to -2.0/screen_height zoom), so bottom = Y position
+    let lander_bottom_y = lander_y;
 
     // Convert lander camera X position to terrain array indices
     // Reverse of terrain rendering: camera_x = (i / 1000.0) * (screen_width * 2.0) - screen_width
@@ -614,10 +614,10 @@ fn check_collision(entity: &Entity) -> CollisionType {
     const LEG_WIDTH_RATIO: f32 = 0.3;   // Each leg takes 30% of width (20% gap in middle)
     const MAX_LANDING_VELOCITY: f32 = 50.0; // Maximum safe landing speed
     
-    // Define collision zones
-    let leg_zone_bottom = lander_bottom_y;
-    let leg_zone_top = lander_bottom_y - (lander_height * LEG_HEIGHT_RATIO);
-    let body_zone_bottom = leg_zone_top;
+    // Define collision zones - corrected for camera coordinates (Y increases upward)
+    let leg_zone_bottom = lander_bottom_y;  // Bottom of lander (lower Y value)
+    let leg_zone_top = lander_bottom_y + (lander_height * LEG_HEIGHT_RATIO);  // 25% up from bottom
+    let body_zone_bottom = leg_zone_top;    // Body starts where legs end
     
     // Leg collision areas (left and right edges)
     let leg_width = lander_width * LEG_WIDTH_RATIO;
@@ -655,17 +655,23 @@ fn check_collision(entity: &Entity) -> CollisionType {
             }
         }
         
-        // Also check if body collides due to full lander height
+        // Check if body collides in the center section only (not where legs are)
+        // Only trigger body collision if we're NOT in a leg zone
         if lander_y <= terrain_y + COLLISION_MARGIN && terrain_x >= body_left && terrain_x <= body_right {
-            body_collision = true;
-            info!("BODY TOP COLLISION: terrain_idx={}, lander_top={:.1}, terrain_y={:.1}", i, lander_y, terrain_y);
+            // Double-check this isn't actually a leg collision that should take priority
+            let is_in_left_leg = terrain_x >= left_leg_start && terrain_x <= left_leg_end;
+            let is_in_right_leg = terrain_x >= right_leg_start && terrain_x <= right_leg_end;
+            
+            if !is_in_left_leg && !is_in_right_leg {
+                body_collision = true;
+                info!("BODY CENTER COLLISION: terrain_idx={}, lander_bottom={:.1}, terrain_y={:.1}", i, lander_y, terrain_y);
+            }
         }
     }
     
     // Determine collision type based on velocity and collision zones
-    if body_collision {
-        CollisionType::BodyCollision
-    } else if leg_collision {
+    // Give priority to leg collisions - if legs touch ground, that's what matters
+    if leg_collision {
         // Check landing velocity for success vs crash
         if let Some(physics) = &entity.physics {
             let landing_velocity = physics.velocity.length();
@@ -679,6 +685,8 @@ fn check_collision(entity: &Entity) -> CollisionType {
         } else {
             CollisionType::LegCollision
         }
+    } else if body_collision {
+        CollisionType::BodyCollision
     } else {
         CollisionType::None
     }
@@ -693,39 +701,42 @@ fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     let lander_width = entity.transform.size.x;
     let lander_height = entity.transform.size.y;
 
-    // Draw lander bounding box in camera coordinates (should exactly match the rocket texture)
-    draw_rectangle_lines(lander_x, lander_y, lander_width, lander_height, 2.0, RED);
+    // Draw debug box at EXACTLY the same position as the rocket texture
+    draw_rectangle_lines(lander_x, lander_y, lander_width, lander_height, 3.0, RED);
 
-    // Mark the four corners for debugging
-    // Note: In camera coordinates with macroquad, Y increases downward
-    draw_circle(lander_x, lander_y, 3.0, BLUE); // Top-left
-    draw_circle(lander_x + lander_width, lander_y, 3.0, GREEN); // Top-right  
-    draw_circle(lander_x, lander_y + lander_height, 3.0, YELLOW); // Bottom-left
-    draw_circle(lander_x + lander_width, lander_y + lander_height, 3.0, ORANGE); // Bottom-right
+    // Mark the four corners - camera coordinates: Y increases UPWARD (-2.0/screen_height zoom)
+    // lander_y is BOTTOM, lander_y + lander_height is TOP
+    draw_circle(lander_x, lander_y, 4.0, BLUE); // Bottom-left of rocket
+    draw_circle(lander_x + lander_width, lander_y, 4.0, GREEN); // Bottom-right of rocket  
+    draw_circle(lander_x, lander_y + lander_height, 4.0, YELLOW); // Top-left of rocket
+    draw_circle(lander_x + lander_width, lander_y + lander_height, 4.0, ORANGE); // Top-right of rocket
 
-    // Highlight collision zones
-    let lander_bottom_y = lander_y + lander_height;
-    
-    // Draw leg zones (left and right edges, bottom 25%)
+    // Collision zones - corrected for inverted Y coordinates
     const LEG_HEIGHT_RATIO: f32 = 0.25;
     const LEG_WIDTH_RATIO: f32 = 0.3;
     let leg_height = lander_height * LEG_HEIGHT_RATIO;
     let leg_width = lander_width * LEG_WIDTH_RATIO;
-    let leg_zone_top = lander_bottom_y - leg_height;
     
-    // Left leg zone (green)
-    draw_rectangle_lines(lander_x, leg_zone_top, leg_width, leg_height, 2.0, GREEN);
+    // Bottom 25% of rocket for legs (lander_y is the bottom)
+    let leg_zone_bottom = lander_y;
+    let leg_zone_top = lander_y + leg_height;
     
-    // Right leg zone (green)
-    draw_rectangle_lines(lander_x + lander_width - leg_width, leg_zone_top, leg_width, leg_height, 2.0, GREEN);
+    // Left leg zone (green rectangles) - bottom 25% left edge
+    draw_rectangle_lines(lander_x, leg_zone_bottom, leg_width, leg_height, 2.0, GREEN);
     
-    // Body zone (red) - center section and upper area
+    // Right leg zone (green rectangles) - bottom 25% right edge  
+    draw_rectangle_lines(lander_x + lander_width - leg_width, leg_zone_bottom, leg_width, leg_height, 2.0, GREEN);
+    
+    // Body collision zone (red center area) - full height, center area
     let body_left = lander_x + leg_width;
     let body_width = lander_width - (2.0 * leg_width);
     draw_rectangle_lines(body_left, lander_y, body_width, lander_height, 2.0, RED);
     
-    // Bottom edge line
-    draw_line(lander_x, lander_bottom_y, lander_x + lander_width, lander_bottom_y, 3.0, YELLOW);
+    // Bottom edge line - this is where collision actually happens (at lander_y)
+    draw_line(lander_x, lander_y, lander_x + lander_width, lander_y, 6.0, YELLOW);
+    
+    // Top edge line - for visual completeness 
+    draw_line(lander_x, lander_y + lander_height, lander_x + lander_width, lander_y + lander_height, 6.0, MAGENTA);
 
     // Now draw terrain collision points in camera coordinates
     set_camera(camera);
