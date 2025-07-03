@@ -563,7 +563,15 @@ fn shutdown_audio(audio: &mut Audio) {
     audio.stop();
 }
 
-fn check_collision(entity: &Entity) -> bool {
+#[derive(Debug, PartialEq)]
+enum CollisionType {
+    None,
+    LegCollision,
+    BodyCollision,
+    LandingSuccess,
+}
+
+fn check_collision(entity: &Entity) -> CollisionType {
     // CAMERA COORDINATE COLLISION DETECTION
     // Both lander and terrain are already in camera coordinates:
     // - Lander position: stored in camera coordinates (entity.transform.position)
@@ -594,26 +602,86 @@ fn check_collision(entity: &Entity) -> bool {
 
     // Safety bounds check
     if terrain_start_idx >= entity.terrain.len() || terrain_end_idx >= entity.terrain.len() {
-        return false;
+        return CollisionType::None;
     }
 
-    // Collision margin for forgiving gameplay
+    // Collision zones - divide lander into legs and body
+    // Legs: bottom 25% of lander, only at the edges (left and right 30% of width)
+    // Body: upper 75% of lander, or center 40% of width at bottom
+    
     const COLLISION_MARGIN: f32 = 3.0;
-
-    // Check if lander bottom touches terrain  
-    // Both in camera coordinates: collision when lander_bottom <= terrain (lander above/at terrain level)
+    const LEG_HEIGHT_RATIO: f32 = 0.25; // Bottom 25% is legs
+    const LEG_WIDTH_RATIO: f32 = 0.3;   // Each leg takes 30% of width (20% gap in middle)
+    const MAX_LANDING_VELOCITY: f32 = 50.0; // Maximum safe landing speed
+    
+    // Define collision zones
+    let leg_zone_bottom = lander_bottom_y;
+    let leg_zone_top = lander_bottom_y - (lander_height * LEG_HEIGHT_RATIO);
+    let body_zone_bottom = leg_zone_top;
+    
+    // Leg collision areas (left and right edges)
+    let leg_width = lander_width * LEG_WIDTH_RATIO;
+    let left_leg_start = lander_left_x;
+    let left_leg_end = lander_left_x + leg_width;
+    let right_leg_start = lander_right_x - leg_width;
+    let right_leg_end = lander_right_x;
+    
+    // Body collision area (center section)
+    let body_left = left_leg_end;
+    let body_right = right_leg_start;
+    
+    // Check for collisions in different zones
+    let mut leg_collision = false;
+    let mut body_collision = false;
+    
     for i in terrain_start_idx..=terrain_end_idx {
         let terrain_y = entity.terrain[i] as f32;
-
-        if lander_bottom_y <= terrain_y + COLLISION_MARGIN {
-            info!("COLLISION: terrain_idx={}, lander_bottom_y={:.1}, terrain_y={:.1}", i, lander_bottom_y, terrain_y);
-            info!("  Camera coords: lander=({:.1},{:.1}) bottom=({:.1},{:.1})", lander_x, lander_y, lander_x, lander_bottom_y);
-            info!("  Screen size: ({:.1},{:.1})", screen_width, macroquad::window::screen_height());
-            return true;
+        let terrain_x = (i as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
+        
+        // Check leg collisions (only at lander bottom, in leg zones)
+        if leg_zone_bottom <= terrain_y + COLLISION_MARGIN {
+            if (terrain_x >= left_leg_start && terrain_x <= left_leg_end) ||
+               (terrain_x >= right_leg_start && terrain_x <= right_leg_end) {
+                leg_collision = true;
+                info!("LEG COLLISION: terrain_idx={}, leg_bottom={:.1}, terrain_y={:.1}", i, leg_zone_bottom, terrain_y);
+            }
+        }
+        
+        // Check body collision (center section or higher up)
+        if body_zone_bottom <= terrain_y + COLLISION_MARGIN {
+            if terrain_x >= body_left && terrain_x <= body_right {
+                body_collision = true;
+                info!("BODY COLLISION: terrain_idx={}, body_bottom={:.1}, terrain_y={:.1}", i, body_zone_bottom, terrain_y);
+            }
+        }
+        
+        // Also check if body collides due to full lander height
+        if lander_y <= terrain_y + COLLISION_MARGIN && terrain_x >= body_left && terrain_x <= body_right {
+            body_collision = true;
+            info!("BODY TOP COLLISION: terrain_idx={}, lander_top={:.1}, terrain_y={:.1}", i, lander_y, terrain_y);
         }
     }
-
-    false
+    
+    // Determine collision type based on velocity and collision zones
+    if body_collision {
+        CollisionType::BodyCollision
+    } else if leg_collision {
+        // Check landing velocity for success vs crash
+        if let Some(physics) = &entity.physics {
+            let landing_velocity = physics.velocity.length();
+            if landing_velocity <= MAX_LANDING_VELOCITY {
+                info!("SUCCESSFUL LANDING: velocity={:.1}", landing_velocity);
+                CollisionType::LandingSuccess
+            } else {
+                info!("HARD LANDING: velocity={:.1} > {:.1}", landing_velocity, MAX_LANDING_VELOCITY);
+                CollisionType::LegCollision
+            }
+        } else {
+            CollisionType::LegCollision
+        }
+    } else {
+        CollisionType::None
+    }
 }
 
 fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
@@ -635,12 +703,29 @@ fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     draw_circle(lander_x, lander_y + lander_height, 3.0, YELLOW); // Bottom-left
     draw_circle(lander_x + lander_width, lander_y + lander_height, 3.0, ORANGE); // Bottom-right
 
-    // Highlight the bottom edge (critical for collision) - this should be YELLOW
+    // Highlight collision zones
     let lander_bottom_y = lander_y + lander_height;
-    draw_line(lander_x, lander_bottom_y, lander_x + lander_width, lander_bottom_y, 3.0, YELLOW);
     
-    // Also highlight the top edge for comparison - this should be BLUE  
-    draw_line(lander_x, lander_y, lander_x + lander_width, lander_y, 3.0, BLUE);
+    // Draw leg zones (left and right edges, bottom 25%)
+    const LEG_HEIGHT_RATIO: f32 = 0.25;
+    const LEG_WIDTH_RATIO: f32 = 0.3;
+    let leg_height = lander_height * LEG_HEIGHT_RATIO;
+    let leg_width = lander_width * LEG_WIDTH_RATIO;
+    let leg_zone_top = lander_bottom_y - leg_height;
+    
+    // Left leg zone (green)
+    draw_rectangle_lines(lander_x, leg_zone_top, leg_width, leg_height, 2.0, GREEN);
+    
+    // Right leg zone (green)
+    draw_rectangle_lines(lander_x + lander_width - leg_width, leg_zone_top, leg_width, leg_height, 2.0, GREEN);
+    
+    // Body zone (red) - center section and upper area
+    let body_left = lander_x + leg_width;
+    let body_width = lander_width - (2.0 * leg_width);
+    draw_rectangle_lines(body_left, lander_y, body_width, lander_height, 2.0, RED);
+    
+    // Bottom edge line
+    draw_line(lander_x, lander_bottom_y, lander_x + lander_width, lander_bottom_y, 3.0, YELLOW);
 
     // Now draw terrain collision points in camera coordinates
     set_camera(camera);
@@ -683,13 +768,34 @@ async fn main() {
         handle_input(lander, &mut audio);
 
         if !lander.dead {
-            // Check for collision
-            if check_collision(lander) {
-                debug!("Collision Detected!");
-                stop_lander(lander);
-                shutdown_audio(&mut audio);
-                lander.sound = false;
-                lander.dead = true;
+            // Check for collision with new collision zones
+            match check_collision(lander) {
+                CollisionType::BodyCollision => {
+                    debug!("Body Collision - Mission Failed!");
+                    stop_lander(lander);
+                    shutdown_audio(&mut audio);
+                    lander.sound = false;
+                    lander.dead = true;
+                }
+                CollisionType::LegCollision => {
+                    debug!("Hard Landing - Mission Failed!");
+                    stop_lander(lander);
+                    shutdown_audio(&mut audio);
+                    lander.sound = false;
+                    lander.dead = true;
+                }
+                CollisionType::LandingSuccess => {
+                    debug!("Successful Landing - Mission Complete!");
+                    stop_lander(lander);
+                    shutdown_audio(&mut audio);
+                    lander.sound = false;
+                    // Don't set dead=true for successful landing - we'll handle this separately
+                    // For now, treat as successful completion
+                    lander.dead = true; // TODO: Add success state
+                }
+                CollisionType::None => {
+                    // No collision, continue normal gameplay
+                }
             }
 
             // Check for empty fuel using rocket physics
