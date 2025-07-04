@@ -222,13 +222,22 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 let camera_x2 = ((i + 1) as f32 / 1000.0) * x_range - screen_width;
                 let camera_y2 = entity.terrain[i + 1] as f32;
                 
+                // Check if this terrain segment is part of a flat spot (landing zone)
+                let is_flat_segment = is_terrain_segment_flat(&entity.terrain, i);
+                let terrain_color = if is_flat_segment {
+                    YELLOW  // Bright yellow for landing zones
+                } else {
+                    DARKGREEN  // Normal terrain color
+                };
+                let line_width = if is_flat_segment { 4.0 } else { 2.0 };
+                
                 draw_line(
                     camera_x1,
                     camera_y1,
                     camera_x2,
                     camera_y2,
-                    2.0,
-                    DARKGREEN,
+                    line_width,
+                    terrain_color,
                 );
             }
 
@@ -580,6 +589,54 @@ enum CollisionType {
     LandingSuccess,
 }
 
+fn is_on_flat_spot(terrain: &Vec<f64>, terrain_indices: &[usize]) -> bool {
+    // Check if the terrain under the lander is flat
+    // A flat spot is defined as having very small height variation
+    const FLAT_TOLERANCE: f64 = 0.5; // Maximum height variation for flat terrain
+    
+    if terrain_indices.len() < 2 {
+        return false;
+    }
+    
+    let first_height = terrain[terrain_indices[0]];
+    for &idx in terrain_indices {
+        if (terrain[idx] - first_height).abs() > FLAT_TOLERANCE {
+            return false; // Height variation too large, not a flat spot
+        }
+    }
+    
+    true
+}
+
+fn is_terrain_segment_flat(terrain: &Vec<f64>, segment_index: usize) -> bool {
+    // Check if a terrain segment is part of a flat landing zone
+    // Look at a small window around this segment to determine if it's flat
+    const FLAT_TOLERANCE: f64 = 0.5; // Same tolerance as landing detection
+    const WINDOW_SIZE: usize = 8; // Check 8 points around this segment
+    
+    if segment_index >= terrain.len() {
+        return false;
+    }
+    
+    // Define window around this segment
+    let start_idx = segment_index.saturating_sub(WINDOW_SIZE / 2);
+    let end_idx = (segment_index + WINDOW_SIZE / 2).min(terrain.len() - 1);
+    
+    if end_idx <= start_idx {
+        return false;
+    }
+    
+    // Check if all points in window have similar height
+    let reference_height = terrain[segment_index];
+    for i in start_idx..=end_idx {
+        if (terrain[i] - reference_height).abs() > FLAT_TOLERANCE {
+            return false;
+        }
+    }
+    
+    true
+}
+
 fn check_collision(entity: &Entity) -> CollisionType {
     // CAMERA COORDINATE COLLISION DETECTION
     // Both lander and terrain are already in camera coordinates:
@@ -639,9 +696,10 @@ fn check_collision(entity: &Entity) -> CollisionType {
     let body_left = left_leg_end;
     let body_right = right_leg_start;
     
-    // Check for collisions in different zones
+    // Check for collisions in different zones and collect terrain indices under lander
     let mut leg_collision = false;
     let mut body_collision = false;
+    let mut collision_terrain_indices = Vec::new();
     
     for i in terrain_start_idx..=terrain_end_idx {
         let terrain_y = entity.terrain[i] as f32;
@@ -652,6 +710,7 @@ fn check_collision(entity: &Entity) -> CollisionType {
             if (terrain_x >= left_leg_start && terrain_x <= left_leg_end) ||
                (terrain_x >= right_leg_start && terrain_x <= right_leg_end) {
                 leg_collision = true;
+                collision_terrain_indices.push(i);
                 info!("LEG COLLISION: terrain_idx={}, leg_bottom={:.1}, terrain_y={:.1}", i, leg_zone_bottom, terrain_y);
             }
         }
@@ -660,23 +719,32 @@ fn check_collision(entity: &Entity) -> CollisionType {
         if body_zone_bottom <= terrain_y + COLLISION_MARGIN {
             if terrain_x >= body_left && terrain_x <= body_right {
                 body_collision = true;
+                collision_terrain_indices.push(i);
                 info!("BODY COLLISION: terrain_idx={}, body_bottom={:.1}, terrain_y={:.1}", i, body_zone_bottom, terrain_y);
             }
         }
         
     }
     
-    // Determine collision type based on velocity and collision zones
-    // Give priority to leg collisions - if legs touch ground, that's what matters
+    // Determine collision type based on flat terrain, velocity, and collision zones
+    // CRITICAL: Only flat spots are safe landing zones!
     if leg_collision {
-        // Check landing velocity for success vs crash
+        // Check if landing on a flat spot (mandatory for success)
+        let on_flat_spot = is_on_flat_spot(&entity.terrain, &collision_terrain_indices);
+        
+        if !on_flat_spot {
+            info!("ROUGH TERRAIN LANDING: Not on flat spot - Mission Failed!");
+            return CollisionType::LegCollision;
+        }
+        
+        // On flat spot - now check velocity for success vs crash
         if let Some(physics) = &entity.physics {
             let landing_velocity = physics.velocity.length();
             if landing_velocity <= MAX_LANDING_VELOCITY {
-                info!("SUCCESSFUL LANDING: velocity={:.1}", landing_velocity);
+                info!("SUCCESSFUL LANDING: velocity={:.1} on flat spot", landing_velocity);
                 CollisionType::LandingSuccess
             } else {
-                info!("HARD LANDING: velocity={:.1} > {:.1}", landing_velocity, MAX_LANDING_VELOCITY);
+                info!("HARD LANDING: velocity={:.1} > {:.1} on flat spot", landing_velocity, MAX_LANDING_VELOCITY);
                 CollisionType::LegCollision
             }
         } else {
