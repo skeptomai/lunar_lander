@@ -3,6 +3,7 @@ extern crate noise;
 use noise::{NoiseFn, Perlin};
 use plotters::prelude::*;
 use rand::Rng;
+use rand::seq::SliceRandom;
 use macroquad::logging::debug;
 
 const WIDTH: u32 = 1000;
@@ -45,63 +46,73 @@ pub fn add_flat_spots(terrain: &mut Vec<f64>, min_length: usize, max_length: usi
     let mut rng = rand::thread_rng();
     let terrain_len = terrain.len();
 
-    debug!("Creating {} flat spots with length {}-{} points", num_spots, min_length, max_length);
+    debug!("Creating {} flat spots with length {}-{} points using zone-based placement", num_spots, min_length, max_length);
 
-    // Track occupied positions to prevent overlaps
+    // Zone-based approach: Divide terrain into non-overlapping zones
+    let max_zones = 6; // Total available zones across the terrain
+    let zone_size = terrain_len / max_zones; // Each zone gets equal space
+    let buffer_size = max_length; // Buffer between zones to prevent overlap
+    
+    debug!("Zone-based placement: {} zones of {} points each, {} point buffer", max_zones, zone_size, buffer_size);
+    
+    // Create available zones (each zone can fit a landing spot + buffer)
+    let mut available_zones: Vec<usize> = (0..max_zones).collect();
+    available_zones.shuffle(&mut rng);
+    
+    // Guarantee at least 2 zones, up to requested number
+    let zones_to_use = std::cmp::max(2, std::cmp::min(num_spots, available_zones.len()));
+    let selected_zones = &available_zones[0..zones_to_use];
+    
+    debug!("Selected {} zones for landing spots: {:?}", zones_to_use, selected_zones);
+    
     let mut occupied_ranges: Vec<(usize, usize)> = Vec::new();
-    let minimum_gap = max_length; // Ensure gaps between landing zones
-
-    for i in 0..num_spots {
-        let spot_length = rng.gen_range(min_length..=max_length);
+    
+    for (i, &zone_id) in selected_zones.iter().enumerate() {
+        // Calculate zone boundaries with buffer
+        let zone_start = zone_id * zone_size;
+        let zone_end = std::cmp::min((zone_id + 1) * zone_size - buffer_size, terrain_len);
         
-        // Try to find a non-overlapping position (max 50 attempts)
-        let mut attempts = 0;
-        let mut start_pos;
-        let mut valid_position = false;
-        
-        loop {
-            start_pos = rng.gen_range(0..terrain_len - spot_length);
-            let end_pos = start_pos + spot_length - 1;
-            
-            // Check if this position conflicts with existing flat spots
-            let conflicts = occupied_ranges.iter().any(|(occupied_start, occupied_end)| {
-                // Check for overlap or insufficient gap
-                let too_close = start_pos <= occupied_end + minimum_gap && end_pos + minimum_gap >= *occupied_start;
-                too_close
-            });
-            
-            if !conflicts {
-                valid_position = true;
-                break;
-            }
-            
-            attempts += 1;
-            if attempts >= 50 {
-                debug!("Warning: Could not find non-overlapping position for flat spot {} after 50 attempts", i + 1);
-                break;
-            }
+        // Ensure zone is large enough for a landing spot
+        let usable_zone_size = zone_end.saturating_sub(zone_start);
+        if usable_zone_size < min_length {
+            debug!("Zone {} too small ({} points), skipping", zone_id, usable_zone_size);
+            continue;
         }
         
-        if valid_position {
-            // Calculate the average height of the section to flatten
-            let avg_height: f64 = terrain[start_pos..start_pos + spot_length].iter().sum::<f64>() / spot_length as f64;
-
-            debug!("Flat spot {}: positions {}-{} (length {}), height {:.1}", 
-                     i + 1, start_pos, start_pos + spot_length - 1, spot_length, avg_height);
-
-            for j in start_pos..start_pos + spot_length {
-                terrain[j] = avg_height;
-            }
-            
-            // Record this occupied range
-            occupied_ranges.push((start_pos, start_pos + spot_length - 1));
+        // Random spot size within zone constraints
+        let max_spot_in_zone = std::cmp::min(max_length, usable_zone_size);
+        let spot_length = rng.gen_range(min_length..=max_spot_in_zone);
+        
+        // Random position within the zone
+        let max_start_pos = zone_end - spot_length;
+        let start_pos = if max_start_pos > zone_start {
+            rng.gen_range(zone_start..=max_start_pos)
         } else {
-            debug!("Skipped flat spot {} due to overlapping constraints", i + 1);
+            zone_start
+        };
+        let end_pos = start_pos + spot_length - 1;
+        
+        // Calculate the average height of the section to flatten
+        let avg_height: f64 = terrain[start_pos..=end_pos].iter().sum::<f64>() / spot_length as f64;
+
+        debug!("Flat spot {}: zone {} positions {}-{} (length {}), height {:.1}", 
+                 i + 1, zone_id, start_pos, end_pos, spot_length, avg_height);
+
+        // Flatten the terrain
+        for j in start_pos..=end_pos {
+            terrain[j] = avg_height;
         }
+        
+        // Record this occupied range
+        occupied_ranges.push((start_pos, end_pos));
     }
     
-    println!("Successfully created {} non-overlapping flat spots", occupied_ranges.len());
+    println!("Successfully created {} guaranteed non-overlapping flat spots using zone-based placement", occupied_ranges.len());
     
-    // Return the flat spot ranges for direct reference
+    // Verify we got at least 2 (this should always be true with zone-based approach)
+    if occupied_ranges.len() < 2 {
+        panic!("CRITICAL ERROR: Zone-based placement failed to create minimum 2 landing zones! Got {}", occupied_ranges.len());
+    }
+    
     occupied_ranges
 }

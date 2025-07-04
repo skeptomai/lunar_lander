@@ -205,6 +205,8 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
             }
 
             // plot surface - convert terrain world coordinates to camera coordinates
+            let mut _yellow_segments_drawn = 0;
+            let mut _zones_with_yellow = std::collections::HashSet::new();
             for i in 0..(entity.terrain.len() - 1) {
                 // Terrain is stored in world coordinates, but camera has limited coordinate range
                 // Camera zoom: 2.0/screen_width means camera X range is roughly -400 to +400 for 800px screen
@@ -224,9 +226,22 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 let camera_y2 = entity.terrain[i + 1] as f32;
                 
                 // Check if this terrain segment is part of a flat spot (landing zone)
-                let is_flat_segment = entity.flat_spots.iter().any(|(start, end)| i >= *start && i <= *end);
+                // Both endpoints of the line segment must be in flat spots for accurate highlighting
+                let start_point_flat = entity.flat_spots.iter().any(|(start, end)| i >= *start && i <= *end);
+                let end_point_flat = entity.flat_spots.iter().any(|(start, end)| (i + 1) >= *start && (i + 1) <= *end);
+                let is_flat_segment = start_point_flat && end_point_flat;
+                
+                
                 let terrain_color = if is_flat_segment {
-                    YELLOW  // Bright yellow for landing zones
+                    _yellow_segments_drawn += 1;
+                    // Track which zone this belongs to
+                    for (zone_idx, (start, end)) in entity.flat_spots.iter().enumerate() {
+                        if i >= *start && i <= *end {
+                            _zones_with_yellow.insert(zone_idx);
+                            break;
+                        }
+                    }
+                    YELLOW  // Bright yellow for all landing zones
                 } else {
                     DARKGREEN  // Normal terrain color
                 };
@@ -241,6 +256,7 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                     terrain_color,
                 );
             }
+            
 
             set_default_camera();
 
@@ -525,6 +541,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
     // Add properly sized flat spots to terrain and get their positions
     let flat_spots = surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
+    
 
     let fonts = load_fonts();
     // Position lander safely above terrain in camera coordinates 
