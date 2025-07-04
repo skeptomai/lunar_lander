@@ -57,6 +57,7 @@ struct Collision {
 struct Entity<'a> {
     transform: Transform,
     terrain: Vec<f64>,
+    flat_spots: Vec<(usize, usize)>, // Store flat spot ranges for direct reference
     screen_fonts: Fonts<'a>,
     physics: Option<Physics>,
     rocket_physics: Option<RocketPhysics>,
@@ -223,7 +224,7 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 let camera_y2 = entity.terrain[i + 1] as f32;
                 
                 // Check if this terrain segment is part of a flat spot (landing zone)
-                let is_flat_segment = is_terrain_segment_flat(&entity.terrain, i);
+                let is_flat_segment = entity.flat_spots.iter().any(|(start, end)| i >= *start && i <= *end);
                 let terrain_color = if is_flat_segment {
                     YELLOW  // Bright yellow for landing zones
                 } else {
@@ -522,8 +523,8 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
            lander_texture_size.x, lander_texture_size.y, lander_width_terrain_points);
     debug!("Flat spot requirements: {}-{} terrain points", min_flat_length, max_flat_length);
 
-    // Add properly sized flat spots to terrain
-    surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
+    // Add properly sized flat spots to terrain and get their positions
+    let flat_spots = surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
 
     let fonts = load_fonts();
     // Position lander safely above terrain in camera coordinates 
@@ -551,6 +552,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
             rotation: 90.0,
         },
         terrain: terrain,
+        flat_spots: flat_spots,
         screen_fonts: fonts,
         physics: Some(Physics {
             velocity: vec2(0.0, 0.0),
@@ -621,9 +623,9 @@ fn is_on_flat_spot(terrain: &Vec<f64>, terrain_indices: &[usize]) -> bool {
 
 fn is_terrain_segment_flat(terrain: &Vec<f64>, segment_index: usize) -> bool {
     // Check if a terrain segment is part of a flat landing zone
-    // Look at a small window around this segment to determine if it's flat
+    // Look at a larger window around this segment to detect flat spots (22-33 points)
     const FLAT_TOLERANCE: f64 = 0.5; // Same tolerance as landing detection
-    const WINDOW_SIZE: usize = 8; // Check 8 points around this segment
+    const WINDOW_SIZE: usize = 40; // Check 40 points around this segment to catch 22-33 point flat spots
     
     if segment_index >= terrain.len() {
         return false;

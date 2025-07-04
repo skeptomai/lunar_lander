@@ -41,7 +41,7 @@ pub fn generate_terrain(num_points: usize, min_height: f64, max_height: f64, bas
     terrain
 }
 
-pub fn add_flat_spots(terrain: &mut Vec<f64>, min_length: usize, max_length: usize, num_spots: usize) {
+pub fn add_flat_spots(terrain: &mut Vec<f64>, min_length: usize, max_length: usize, num_spots: usize) -> Vec<(usize, usize)> {
     let mut rng = rand::thread_rng();
     let terrain_len = terrain.len();
 
@@ -101,4 +101,7 @@ pub fn add_flat_spots(terrain: &mut Vec<f64>, min_length: usize, max_length: usi
     }
     
     println!("Successfully created {} non-overlapping flat spots", occupied_ranges.len());
+    
+    // Return the flat spot ranges for direct reference
+    occupied_ranges
 }
