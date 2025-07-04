@@ -69,6 +69,7 @@ struct Entity<'a> {
     time_elapsed: f32,
     show_debug_info: bool,
     dead: bool,
+    mission_success: bool,
     current_audio: Option<String>,
 }
 
@@ -211,8 +212,7 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 // Terrain Y: world coordinates already correct
                 
                 let screen_width = macroquad::window::screen_width();
-                let screen_height = macroquad::window::screen_height();
-                
+
                 // Map terrain X from array index (0-1000) to full camera X coordinate range
                 // Camera zoom is 2.0/screen_width, so visible range is from -1.0 to +1.0 in normalized coords
                 // But we want to use the full screen, so map 0-1000 to -screen_width to +screen_width
@@ -300,7 +300,14 @@ fn draw_alert_box(entity: &Entity) {
     let box_y = (screen_height - ALERT_BOX_HEIGHT) / 2.5;
 
     draw_rectangle(box_x, box_y, ALERT_BOX_WIDTH, ALERT_BOX_HEIGHT, LIGHTGRAY);
-    fonts.draw_text("Mission Failed!", box_x + 40.0, box_y + 20.0, 30.0, RED);
+    
+    if entity.mission_success {
+        fonts.draw_text("Mission Success!", box_x + 30.0, box_y + 20.0, 30.0, GREEN);
+        fonts.draw_text("Landing Complete!", box_x + 70.0, box_y + 50.0, 20.0, WHITE);
+    } else {
+        fonts.draw_text("Mission Failed!", box_x + 40.0, box_y + 20.0, 30.0, RED);
+    }
+    
     fonts.draw_text("Press R to Restart", box_x + 60.0, box_y + 70.0, 20.0, WHITE);
 }
 
@@ -351,29 +358,30 @@ fn handle_input(lander: &mut Entity, audio: &mut Audio) {
         lander.show_debug_info = !lander.show_debug_info;
     }
 
-    // Unified audio management with state tracking
-    let desired_audio = if should_play_thrust {
-        Some("acceleration".to_string())
-    } else if should_play_ambient {
-        Some("ambient".to_string())
-    } else {
-        None
-    };
-
-    // Only change audio if the desired state is different
-    if lander.current_audio != desired_audio {
-        // Stop current audio
-        if audio.is_playing() {
+    // Simplified audio management - keep ambient sound playing during free fall
+    if should_play_thrust {
+        // Switch to thrust audio
+        if lander.current_audio != Some("acceleration".to_string()) {
             shutdown_audio(audio);
+            audio.play("acceleration");
+            lander.current_audio = Some("acceleration".to_string());
         }
-        
-        // Start new audio if needed
-        if let Some(audio_name) = &desired_audio {
-            audio.play(audio_name);
+    } else if should_play_ambient {
+        // Switch to or maintain ambient audio
+        if lander.current_audio != Some("ambient".to_string()) {
+            shutdown_audio(audio);
+            audio.play("ambient");
+            lander.current_audio = Some("ambient".to_string());
+        } else if !audio.is_playing() {
+            // Restart ambient if it stopped playing for any reason
+            audio.play("ambient");
         }
-        
-        // Update state
-        lander.current_audio = desired_audio;
+    } else {
+        // Only stop audio if sound is disabled
+        if lander.current_audio.is_some() {
+            shutdown_audio(audio);
+            lander.current_audio = None;
+        }
     }
 }
 
@@ -400,8 +408,7 @@ fn stop_lander(lander: &mut Entity) {
 
 fn reset_lander(lander: &mut Entity) {
     // Reset lander
-    let lander_texture = &lander.renderer_lander.as_ref().unwrap().texture;
-    let _lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
+
     // Position lander safely above terrain
     // Terrain is at Y: 60-100, so position lander above at Y: 50 (or lower)
     let initial_world_pos = vec2(0.0, 50.0);
@@ -429,6 +436,7 @@ fn reset_lander(lander: &mut Entity) {
     lander.time_elapsed = 0.0;
     lander.sound = true;
     lander.dead = false;
+    lander.mission_success = false;
     lander.current_audio = None;
 }
 
@@ -495,7 +503,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let lander_high_accel_texture = load_texture("assets/images/lander-high-accel.png").await.expect("Failed to load texture");
 
     // Get the size of the texture
-    let _lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
+    let lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
 
     let fonts = load_fonts();
     // Position lander safely above terrain in camera coordinates 
@@ -510,15 +518,15 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     
     // Center the rocket by offsetting by half texture size
     let centered_position = vec2(
-        screen_pos.x - _lander_texture_size.x / 2.0,
-        screen_pos.y - _lander_texture_size.y / 2.0
+        screen_pos.x - lander_texture_size.x / 2.0,
+        screen_pos.y - lander_texture_size.y / 2.0
     );
 
     // Create lander
 
     let lander = Entity {
         transform: Transform {
-            size: _lander_texture_size,
+            size: lander_texture_size,
             position: centered_position,
             rotation: 90.0,
         },
@@ -546,6 +554,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         time_elapsed: 0.0,
         show_debug_info: false,
         dead: false,
+        mission_success: false,
         current_audio: None,
     };
 
@@ -612,7 +621,7 @@ fn check_collision(entity: &Entity) -> CollisionType {
     const COLLISION_MARGIN: f32 = 3.0;
     const LEG_HEIGHT_RATIO: f32 = 0.25; // Bottom 25% is legs
     const LEG_WIDTH_RATIO: f32 = 0.3;   // Each leg takes 30% of width (20% gap in middle)
-    const MAX_LANDING_VELOCITY: f32 = 50.0; // Maximum safe landing speed
+    const MAX_LANDING_VELOCITY: f32 = 10.0; // Maximum safe landing speed
     
     // Define collision zones - corrected for camera coordinates (Y increases upward)
     let leg_zone_bottom = lander_bottom_y;  // Bottom of lander (lower Y value)
@@ -655,18 +664,6 @@ fn check_collision(entity: &Entity) -> CollisionType {
             }
         }
         
-        // Check if body collides in the center section only (not where legs are)
-        // Only trigger body collision if we're NOT in a leg zone
-        if lander_y <= terrain_y + COLLISION_MARGIN && terrain_x >= body_left && terrain_x <= body_right {
-            // Double-check this isn't actually a leg collision that should take priority
-            let is_in_left_leg = terrain_x >= left_leg_start && terrain_x <= left_leg_end;
-            let is_in_right_leg = terrain_x >= right_leg_start && terrain_x <= right_leg_end;
-            
-            if !is_in_left_leg && !is_in_right_leg {
-                body_collision = true;
-                info!("BODY CENTER COLLISION: terrain_idx={}, lander_bottom={:.1}, terrain_y={:.1}", i, lander_y, terrain_y);
-            }
-        }
     }
     
     // Determine collision type based on velocity and collision zones
@@ -719,7 +716,7 @@ fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     
     // Bottom 25% of rocket for legs (lander_y is the bottom)
     let leg_zone_bottom = lander_y;
-    let leg_zone_top = lander_y + leg_height;
+    // let leg_zone_top = lander_y + leg_height;
     
     // Left leg zone (green rectangles) - bottom 25% left edge
     draw_rectangle_lines(lander_x, leg_zone_bottom, leg_width, leg_height, 2.0, GREEN);
@@ -800,9 +797,8 @@ async fn main() {
                     stop_lander(lander);
                     shutdown_audio(&mut audio);
                     lander.sound = false;
-                    // Don't set dead=true for successful landing - we'll handle this separately
-                    // For now, treat as successful completion
-                    lander.dead = true; // TODO: Add success state
+                    lander.dead = true;
+                    lander.mission_success = true;
                 }
                 CollisionType::None => {
                     // No collision, continue normal gameplay
@@ -810,13 +806,12 @@ async fn main() {
             }
 
             // Check for empty fuel using rocket physics
+            // Note: Running out of fuel doesn't end the mission - just prevents thrust
             if let Some(rocket) = &lander.rocket_physics {
                 if !rocket.has_fuel() {
-                    debug!("Out of fuel!");
-                    stop_lander(lander);
-                    shutdown_audio(&mut audio);
-                    lander.sound = false;
-                    lander.dead = true;
+                    debug!("Out of fuel! Free fall mode.");
+                    // Don't stop audio or kill lander - let physics continue
+                    // Player can still try to land safely without thrust
                 }
             }
 
