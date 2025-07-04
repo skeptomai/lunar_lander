@@ -499,10 +499,26 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         *h = *h * 0.4 + 60.0; // Scale 0-100 to 0-40, then offset to 60-100
     });
 
-    // Add random flat spots for landing
-    let min_flat_length = 20;
-    let max_flat_length = 40;
-    let num_flat_spots = 5;
+    // Add random flat spots for landing - sized for lander dimensions
+    // Calculate lander width in terrain coordinate units
+    // Terrain array has 1000 points spanning screen_width * 2.0 in camera coordinates
+    // Lander texture size will be calculated below, but we can estimate from texture scaling
+    
+    // Standard lander texture is typically ~64px, scaled by 0.5 = 32px
+    // Camera coordinates: screen spans -screen_width to +screen_width (2 * screen_width total)
+    // Terrain array: 1000 points across 2 * screen_width camera coordinates
+    // So: terrain_points_per_camera_unit = 1000 / (2 * screen_width)
+    let current_screen_width = screen_width(); // Get actual screen width
+    let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
+    
+    // Estimate lander width in terrain points (will be refined after texture loading)
+    let estimated_lander_width_pixels = 32.0; // 64px texture * 0.5 scale
+    let estimated_lander_width_terrain_points = (estimated_lander_width_pixels * terrain_points_per_pixel) as usize;
+    
+    // Landing zone requirements: min = lander_width, max = 1.5 * lander_width
+    let min_flat_length = estimated_lander_width_terrain_points.max(15); // At least 15 points minimum
+    let max_flat_length = (estimated_lander_width_terrain_points as f32 * 1.5) as usize;
+    let num_flat_spots = macroquad::rand::gen_range(2, 5); // Between 2-4 landing zones (inclusive)
 
     surface::add_flat_spots(&mut terrain, min_flat_length, max_flat_length, num_flat_spots);
 
@@ -513,6 +529,33 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
     // Get the size of the texture
     let lander_texture_size = lander_texture.size().mul_add(Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y), Vec2::new(0.0, 0.0));
+    
+    // Recalculate flat spots with actual lander dimensions
+    let actual_lander_width_pixels = lander_texture_size.x;
+    let actual_lander_width_terrain_points = (actual_lander_width_pixels * terrain_points_per_pixel) as usize;
+    
+    // Verify our flat spots are properly sized for the actual lander
+    let required_min_flat_length = actual_lander_width_terrain_points;
+    let required_max_flat_length = (actual_lander_width_terrain_points as f32 * 1.5) as usize;
+    
+    debug!("Lander dimensions: {}x{} pixels ({} terrain points wide)", 
+           lander_texture_size.x, lander_texture_size.y, actual_lander_width_terrain_points);
+    debug!("Flat spot requirements: {}-{} terrain points", required_min_flat_length, required_max_flat_length);
+    
+    // Regenerate flat spots if our estimate was significantly off
+    if required_min_flat_length != min_flat_length || required_max_flat_length != max_flat_length {
+        debug!("Regenerating flat spots with correct lander dimensions...");
+        
+        // Reset terrain to base noise (before flat spots were added)
+        let mut fresh_terrain = surface::generate_terrain(num_points, min_height, max_height, base_frequency, octaves, persistence);
+        fresh_terrain.iter_mut().for_each(|h| {
+            *h = *h * 0.4 + 60.0; // Apply same scaling as before
+        });
+        
+        // Add properly sized flat spots
+        surface::add_flat_spots(&mut fresh_terrain, required_min_flat_length, required_max_flat_length, num_flat_spots);
+        terrain = fresh_terrain;
+    }
 
     let fonts = load_fonts();
     // Position lander safely above terrain in camera coordinates 
