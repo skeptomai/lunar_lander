@@ -42,14 +42,15 @@ pub fn generate_terrain(num_points: usize, min_height: f64, max_height: f64, bas
     terrain
 }
 
-pub fn add_flat_spots(terrain: &mut Vec<f64>, min_length: usize, max_length: usize, num_spots: usize) -> Vec<(usize, usize)> {
+pub fn add_flat_spots(terrain: &mut Vec<f64>, min_length: usize, max_length: usize,
+                      num_spots: usize, max_zones: usize) -> Vec<(usize, usize)> {
     let mut rng = rand::thread_rng();
     let terrain_len = terrain.len();
 
-    debug!("Creating {} flat spots with length {}-{} points using zone-based placement", num_spots, min_length, max_length);
+    debug!("Creating {} flat spots with length {}-{} points using zone-based placement", num_spots,
+           min_length, max_length);
 
     // Zone-based approach: Divide terrain into non-overlapping zones
-    let max_zones = 6; // Total available zones across the terrain
     let zone_size = terrain_len / max_zones; // Each zone gets equal space
     let buffer_size = max_length; // Buffer between zones to prevent overlap
     
