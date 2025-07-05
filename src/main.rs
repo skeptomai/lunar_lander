@@ -224,7 +224,8 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 // Check if this terrain segment is part of the single flat landing spot
                 // We now have exactly one flat spot, so we can access it directly
                 let (flat_start, flat_end) = entity.flat_spots[0];
-                let is_flat_segment = i >= flat_start && i <= flat_end;
+                // A line segment should only be highlighted if BOTH endpoints are flat
+                let is_flat_segment = i >= flat_start && (i + 1) <= flat_end;
 
                 let terrain_color = if is_flat_segment {
                     yellow_segments_drawn += 1;
@@ -246,15 +247,72 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
 
             // Debug: Report highlighting results (first frame only)
             if entity.time_elapsed < 0.1 {
+                let (flat_start, flat_end) = entity.flat_spots[0];
                 debug!(
                     "Terrain highlighting: {} yellow segments for single landing zone at {}-{}",
-                    yellow_segments_drawn,
-                    entity.flat_spots[0].0,
-                    entity.flat_spots[0].1
+                    yellow_segments_drawn, flat_start, flat_end
+                );
+                debug!(
+                    "Flat spot details: terrain[{}] = {:.1}, terrain[{}] = {:.1}",
+                    flat_start, entity.terrain[flat_start], flat_end, entity.terrain[flat_end]
                 );
             }
 
             set_default_camera();
+
+            if entity.show_debug_info {
+                // Debug: Draw center reticle to show screen center
+                let screen_center_x = screen_width() / 2.0;
+                let screen_center_y = screen_height() / 2.0;
+                // Horizontal line (50 pixels each direction)
+                draw_line(
+                    screen_center_x - 50.0,
+                    screen_center_y,
+                    screen_center_x + 50.0,
+                    screen_center_y,
+                    2.0,
+                    RED,
+                );
+                // Vertical line (50 pixels each direction)
+                draw_line(
+                    screen_center_x,
+                    screen_center_y - 50.0,
+                    screen_center_x,
+                    screen_center_y + 50.0,
+                    2.0,
+                    RED,
+                );
+
+                // Debug: Draw edge markers to show screen bounds
+                let terrain_level = screen_height() - 150.0; // Above terrain level
+                // Left edge marker (10 pixels from left edge)
+                draw_line(
+                    0.0,
+                    terrain_level,
+                    10.0,
+                    terrain_level,
+                    2.0,
+                    BLUE,
+                );
+                // Right edge marker (10 pixels from right edge toward center)
+                draw_line(
+                    screen_width() - 10.0,
+                    terrain_level,
+                    screen_width(),
+                    terrain_level,
+                    2.0,
+                    BLUE,
+                );
+                // Center marker (10 pixels straddling center X axis)
+                draw_line(
+                    screen_center_x - 5.0,
+                    terrain_level,
+                    screen_center_x + 5.0,
+                    terrain_level,
+                    2.0,
+                    BLUE,
+                );
+            }
 
             if entity.dead {
                 draw_alert_box(entity);
@@ -579,9 +637,16 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
     let lander_width_terrain_points = (lander_texture_size.x * terrain_points_per_pixel) as usize;
 
+    // Calculate landing spot size: 1.5x lander width for comfortable landing
+    let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
+
     debug!(
         "Lander dimensions: {}x{} pixels ({} terrain points wide)",
         lander_texture_size.x, lander_texture_size.y, lander_width_terrain_points
+    );
+    debug!(
+        "Landing spot size: {} terrain points (1.5x lander width)",
+        landing_spot_terrain_points
     );
 
     // Generate terrain with integrated flat landing spot
@@ -592,7 +657,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         base_frequency,
         octaves,
         persistence,
-        lander_width_terrain_points,
+        landing_spot_terrain_points,
     );
 
     // Convert terrain to visible coordinates for camera rendering
@@ -606,7 +671,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
     debug!(
         "Generated single flat landing spot at positions {}-{} ({} points)",
-        flat_spot_range.0, flat_spot_range.1, lander_width_terrain_points
+        flat_spot_range.0, flat_spot_range.1, landing_spot_terrain_points
     );
 
     // COMMENTED OUT: Old multi-flat-spot generation approach

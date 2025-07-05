@@ -59,53 +59,31 @@ pub fn generate_terrain_with_flat_spot(
     let mut terrain = Vec::with_capacity(num_points);
     let mut rng = rand::thread_rng();
 
-    // Pick random position for flat spot (avoid edges - 20% to 80% of terrain)
-    let margin = num_points / 5; // 20% margin on each side
-    let flat_spot_start = rng.gen_range(margin..(num_points - margin - lander_width_points));
+    // Pick one random position for flat spot (simple approach - anywhere in terrain)
+    let flat_spot_start = rng.gen_range(100..(num_points - lander_width_points - 100));
     let flat_spot_end = flat_spot_start + lander_width_points - 1;
 
-    debug!(
-        "Generating terrain with integrated flat spot at positions {}-{} ({} points)",
-        flat_spot_start, flat_spot_end, lander_width_points
-    );
-
-    // Generate height at flat spot position using Perlin noise
-    let mut flat_height = 0.0;
-    let mut amplitude = 1.0;
-    let mut frequency = base_frequency;
-    let mut max_amplitude = 0.0;
-
-    for _ in 0..octaves {
-        flat_height += perlin.get([flat_spot_start as f64 * frequency, 0.0]) * amplitude;
-        max_amplitude += amplitude;
-        amplitude *= persistence;
-        frequency *= 2.0;
-    }
-    flat_height /= max_amplitude; // Normalize
-
-    // Generate terrain with integrated flat spot
+    // Generate terrain using standard Perlin noise
     for i in 0..num_points {
-        let height = if i >= flat_spot_start && i <= flat_spot_end {
-            // Use the pre-calculated flat height for the landing zone
-            flat_height
-        } else {
-            // Generate normal Perlin noise terrain
-            let mut height = 0.0;
-            let mut amplitude = 1.0;
-            let mut frequency = base_frequency;
-            let mut max_amplitude = 0.0;
+        let mut height = 0.0;
+        let mut amplitude = 1.0;
+        let mut frequency = base_frequency;
+        let mut max_amplitude = 0.0;
 
-            for _ in 0..octaves {
-                height += perlin.get([i as f64 * frequency, 0.0]) * amplitude;
-                max_amplitude += amplitude;
-                amplitude *= persistence;
-                frequency *= 2.0;
-            }
-            height /= max_amplitude; // Normalize
-            height
-        };
-        
+        for _ in 0..octaves {
+            height += perlin.get([i as f64 * frequency, 0.0]) * amplitude;
+            max_amplitude += amplitude;
+            amplitude *= persistence;
+            frequency *= 2.0;
+        }
+        height /= max_amplitude; // Normalize
         terrain.push(height);
+    }
+
+    // Now pick the height at the start of flat spot and make entire flat section that height
+    let flat_height = terrain[flat_spot_start];
+    for i in flat_spot_start..=flat_spot_end {
+        terrain[i] = flat_height;
     }
 
     // Normalize and scale the terrain to the desired height range
@@ -118,8 +96,8 @@ pub fn generate_terrain_with_flat_spot(
     });
 
     debug!(
-        "Flat spot integrated at height {:.1} (after scaling)",
-        terrain[flat_spot_start]
+        "Generated flat landing spot at positions {}-{} ({} points) at height {:.1}",
+        flat_spot_start, flat_spot_end, lander_width_points, terrain[flat_spot_start]
     );
 
     (terrain, (flat_spot_start, flat_spot_end))
