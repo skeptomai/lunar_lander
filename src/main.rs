@@ -205,8 +205,8 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
             }
 
             // plot surface - convert terrain world coordinates to camera coordinates
-            let mut _yellow_segments_drawn = 0;
-            let mut _zones_with_yellow = std::collections::HashSet::new();
+            let mut yellow_segments_drawn = 0;
+            let mut zones_with_yellow = std::collections::HashSet::new();
             for i in 0..(entity.terrain.len() - 1) {
                 // Terrain is stored in world coordinates, but camera has limited coordinate range
                 // Camera zoom: 2.0/screen_width means camera X range is roughly -400 to +400 for 800px screen
@@ -226,18 +226,18 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 let camera_y2 = entity.terrain[i + 1] as f32;
                 
                 // Check if this terrain segment is part of a flat spot (landing zone)
-                // Both endpoints of the line segment must be in flat spots for accurate highlighting
+                // If either endpoint is in a flat spot, highlight the segment
                 let start_point_flat = entity.flat_spots.iter().any(|(start, end)| i >= *start && i <= *end);
                 let end_point_flat = entity.flat_spots.iter().any(|(start, end)| (i + 1) >= *start && (i + 1) <= *end);
-                let is_flat_segment = start_point_flat && end_point_flat;
+                let is_flat_segment = start_point_flat || end_point_flat;
                 
                 
                 let terrain_color = if is_flat_segment {
-                    _yellow_segments_drawn += 1;
-                    // Track which zone this belongs to
-                    for (zone_idx, (start, end)) in entity.flat_spots.iter().enumerate() {
+                    yellow_segments_drawn += 1;
+                    // Track which flat spot this belongs to (by flat spot index, not zone ID)
+                    for (flat_spot_idx, (start, end)) in entity.flat_spots.iter().enumerate() {
                         if i >= *start && i <= *end {
-                            _zones_with_yellow.insert(zone_idx);
+                            zones_with_yellow.insert(flat_spot_idx);
                             break;
                         }
                     }
@@ -257,6 +257,11 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 );
             }
             
+            // Debug: Report highlighting results (first frame only)
+            if entity.time_elapsed < 0.1 {
+                debug!("Terrain highlighting: {} yellow segments across {} landing zones",
+                       yellow_segments_drawn, zones_with_yellow.len());
+            }
 
             set_default_camera();
 
@@ -534,6 +539,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let min_flat_length = lander_width_terrain_points;
     let max_flat_length = (lander_width_terrain_points as f32 * 1.5) as usize;
     let num_flat_spots = macroquad::rand::gen_range(2, 5); // Between 2-4 landing zones (inclusive)
+    debug!("Random number generated: {} flat spots requested", num_flat_spots);
 
     debug!("Lander dimensions: {}x{} pixels ({} terrain points wide)", 
            lander_texture_size.x, lander_texture_size.y, lander_width_terrain_points);
@@ -860,7 +866,7 @@ fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
  // Main game loop
 #[macroquad::main("Lunar Lander")]
 async fn main() {
-
+    rand::srand(macroquad::miniquad::date::now() as _);
     let mut audio = load_audio();
     let mut entities = Vec::new();
     add_lander_entity(&mut entities).await;
