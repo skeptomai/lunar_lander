@@ -203,7 +203,6 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
 
             // plot surface - convert terrain world coordinates to camera coordinates
             let mut yellow_segments_drawn = 0;
-            let mut zones_with_yellow = std::collections::HashSet::new();
             for i in 0..(entity.terrain.len() - 1) {
                 // Terrain is stored in world coordinates, but camera has limited coordinate range
                 // Camera zoom: 2.0/screen_width means camera X range is roughly -400 to +400 for 800px screen
@@ -222,28 +221,14 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 let camera_x2 = ((i + 1) as f32 / 1000.0) * x_range - screen_width;
                 let camera_y2 = entity.terrain[i + 1] as f32;
 
-                // Check if this terrain segment is part of a flat spot (landing zone)
-                // If either endpoint is in a flat spot, highlight the segment
-                let start_point_flat = entity
-                    .flat_spots
-                    .iter()
-                    .any(|(start, end)| i >= *start && i <= *end);
-                let end_point_flat = entity
-                    .flat_spots
-                    .iter()
-                    .any(|(start, end)| (i + 1) >= *start && (i + 1) <= *end);
-                let is_flat_segment = start_point_flat || end_point_flat;
+                // Check if this terrain segment is part of the single flat landing spot
+                // We now have exactly one flat spot, so we can access it directly
+                let (flat_start, flat_end) = entity.flat_spots[0];
+                let is_flat_segment = i >= flat_start && i <= flat_end;
 
                 let terrain_color = if is_flat_segment {
                     yellow_segments_drawn += 1;
-                    // Track which flat spot this belongs to (by flat spot index, not zone ID)
-                    for (flat_spot_idx, (start, end)) in entity.flat_spots.iter().enumerate() {
-                        if i >= *start && i <= *end {
-                            zones_with_yellow.insert(flat_spot_idx);
-                            break;
-                        }
-                    }
-                    YELLOW // Bright yellow for all landing zones
+                    YELLOW // Bright yellow for the single landing zone
                 } else {
                     DARKGREEN // Normal terrain color
                 };
@@ -262,9 +247,10 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
             // Debug: Report highlighting results (first frame only)
             if entity.time_elapsed < 0.1 {
                 debug!(
-                    "Terrain highlighting: {} yellow segments across {} landing zones",
+                    "Terrain highlighting: {} yellow segments for single landing zone at {}-{}",
                     yellow_segments_drawn,
-                    zones_with_yellow.len()
+                    entity.flat_spots[0].0,
+                    entity.flat_spots[0].1
                 );
             }
 
@@ -570,21 +556,6 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let octaves = 6;
     let persistence = 0.5;
 
-    let mut terrain = surface::generate_terrain(
-        num_points,
-        min_height,
-        max_height,
-        base_frequency,
-        octaves,
-        persistence,
-    );
-
-    // Convert terrain to visible coordinates for camera rendering
-    // Keep terrain in visible range: Y: 60-100 (these show up at bottom of screen)
-    terrain.iter_mut().for_each(|h| {
-        *h = *h * 0.4 + 60.0; // Scale 0-100 to 0-40, then offset to 60-100
-    });
-
     // Load textures first to get actual lander dimensions
     let lander_texture = load_texture("assets/images/lander.png")
         .await
@@ -608,33 +579,48 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
     let lander_width_terrain_points = (lander_texture_size.x * terrain_points_per_pixel) as usize;
 
-    // Landing zone requirements: min = lander_width, max = 1.5 * lander_width
-    let min_flat_length = lander_width_terrain_points;
-    let max_flat_length = (lander_width_terrain_points as f32 * 1.5) as usize;
-    let num_flat_spots = macroquad::rand::gen_range(2, 5); // Between 2-4 landing zones (inclusive)
-    debug!(
-        "Random number generated: {} flat spots requested",
-        num_flat_spots
-    );
-    let max_zones = 5;
-
     debug!(
         "Lander dimensions: {}x{} pixels ({} terrain points wide)",
         lander_texture_size.x, lander_texture_size.y, lander_width_terrain_points
     );
-    debug!(
-        "Flat spot requirements: {}-{} terrain points",
-        min_flat_length, max_flat_length
+
+    // Generate terrain with integrated flat landing spot
+    let (mut terrain, flat_spot_range) = surface::generate_terrain_with_flat_spot(
+        num_points,
+        min_height,
+        max_height,
+        base_frequency,
+        octaves,
+        persistence,
+        lander_width_terrain_points,
     );
 
-    // Add properly sized flat spots to terrain and get their positions
-    let flat_spots = surface::add_flat_spots(
-        &mut terrain,
-        min_flat_length,
-        max_flat_length,
-        num_flat_spots,
-        max_zones,
+    // Convert terrain to visible coordinates for camera rendering
+    // Keep terrain in visible range: Y: 60-100 (these show up at bottom of screen)
+    terrain.iter_mut().for_each(|h| {
+        *h = *h * 0.4 + 60.0; // Scale 0-100 to 0-40, then offset to 60-100
+    });
+
+    // Convert single flat spot to the expected Vec format for compatibility
+    let flat_spots = vec![flat_spot_range];
+
+    debug!(
+        "Generated single flat landing spot at positions {}-{} ({} points)",
+        flat_spot_range.0, flat_spot_range.1, lander_width_terrain_points
     );
+
+    // COMMENTED OUT: Old multi-flat-spot generation approach
+    // let min_flat_length = lander_width_terrain_points;
+    // let max_flat_length = (lander_width_terrain_points as f32 * 1.5) as usize;
+    // let num_flat_spots = macroquad::rand::gen_range(2, 5); // Between 2-4 landing zones (inclusive)
+    // let max_zones = 5;
+    // let flat_spots = surface::add_flat_spots(
+    //     &mut terrain,
+    //     min_flat_length,
+    //     max_flat_length,
+    //     num_flat_spots,
+    //     max_zones,
+    // );
 
     let fonts = load_fonts();
     // Position lander safely above terrain in camera coordinates
@@ -711,23 +697,29 @@ enum CollisionType {
     LandingSuccess,
 }
 
-fn is_on_flat_spot(terrain: &Vec<f64>, terrain_indices: &[usize]) -> bool {
-    // Check if the terrain under the lander is flat
-    // A flat spot is defined as having very small height variation
-    const FLAT_TOLERANCE: f64 = 0.5; // Maximum height variation for flat terrain
-
-    if terrain_indices.len() < 2 {
+fn is_on_flat_spot(terrain_indices: &[usize], flat_spot_range: (usize, usize), lander_width_terrain_points: usize) -> bool {
+    // Check if any of the collision terrain indices are within the known flat spot range
+    // Use 1.3x lander width tolerance as requested
+    if terrain_indices.is_empty() {
         return false;
     }
 
-    let first_height = terrain[terrain_indices[0]];
+    let (flat_start, flat_end) = flat_spot_range;
+    
+    // Calculate tolerance: 1.3x lander width means 0.3x extra width total
+    // Split evenly on both sides: 0.15x lander width on each side
+    let tolerance_points = ((lander_width_terrain_points as f32 * 0.15) as usize).max(1);
+    
+    let tolerance_start = flat_start.saturating_sub(tolerance_points);
+    let tolerance_end = flat_end + tolerance_points;
+    
     for &idx in terrain_indices {
-        if (terrain[idx] - first_height).abs() > FLAT_TOLERANCE {
-            return false; // Height variation too large, not a flat spot
+        if idx >= tolerance_start && idx <= tolerance_end {
+            return true; // At least part of the lander is on or near the flat spot
         }
     }
 
-    true
+    false
 }
 
 fn is_terrain_segment_flat(terrain: &Vec<f64>, segment_index: usize) -> bool {
@@ -860,7 +852,15 @@ fn check_collision(entity: &Entity) -> CollisionType {
     // CRITICAL: Only flat spots are safe landing zones!
     if leg_collision {
         // Check if landing on a flat spot (mandatory for success)
-        let on_flat_spot = is_on_flat_spot(&entity.terrain, &collision_terrain_indices);
+        // We know exactly where the flat spot is now, so check against the known range
+        let flat_spot_range = entity.flat_spots[0]; // We have exactly one flat spot
+        
+        // Calculate lander width in terrain points for tolerance
+        let screen_width = macroquad::window::screen_width();
+        let terrain_points_per_pixel = 1000.0 / (screen_width * 2.0);
+        let lander_width_terrain_points = (entity.transform.size.x * terrain_points_per_pixel) as usize;
+        
+        let on_flat_spot = is_on_flat_spot(&collision_terrain_indices, flat_spot_range, lander_width_terrain_points);
 
         if !on_flat_spot {
             info!("ROUGH TERRAIN LANDING: Not on flat spot - Mission Failed!");
