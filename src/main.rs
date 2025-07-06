@@ -261,57 +261,7 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
             set_default_camera();
 
             if entity.show_debug_info {
-                // Debug: Draw center reticle to show screen center
-                let screen_center_x = screen_width() / 2.0;
-                let screen_center_y = screen_height() / 2.0;
-                // Horizontal line (50 pixels each direction)
-                draw_line(
-                    screen_center_x - 50.0,
-                    screen_center_y,
-                    screen_center_x + 50.0,
-                    screen_center_y,
-                    2.0,
-                    RED,
-                );
-                // Vertical line (50 pixels each direction)
-                draw_line(
-                    screen_center_x,
-                    screen_center_y - 50.0,
-                    screen_center_x,
-                    screen_center_y + 50.0,
-                    2.0,
-                    RED,
-                );
-
-                // Debug: Draw edge markers to show screen bounds
-                let terrain_level = screen_height() - 150.0; // Above terrain level
-                // Left edge marker (10 pixels from left edge)
-                draw_line(
-                    0.0,
-                    terrain_level,
-                    10.0,
-                    terrain_level,
-                    2.0,
-                    BLUE,
-                );
-                // Right edge marker (10 pixels from right edge toward center)
-                draw_line(
-                    screen_width() - 10.0,
-                    terrain_level,
-                    screen_width(),
-                    terrain_level,
-                    2.0,
-                    BLUE,
-                );
-                // Center marker (10 pixels straddling center X axis)
-                draw_line(
-                    screen_center_x - 5.0,
-                    terrain_level,
-                    screen_center_x + 5.0,
-                    terrain_level,
-                    2.0,
-                    BLUE,
-                );
+                debug_render(entity);
             }
 
             if entity.dead {
@@ -534,6 +484,32 @@ fn stop_lander(lander: &mut Entity) {
 fn reset_lander(lander: &mut Entity) {
     // Reset lander
 
+    // Regenerate terrain with new random flat spot using SAME parameters as initial generation
+    let current_screen_width = screen_width();
+    let lander_width_pixels = lander.transform.size.x;
+    let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
+    let lander_width_terrain_points = (lander_width_pixels * terrain_points_per_pixel) as usize;
+    let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
+    
+    // Use SAME parameters as initial generation
+    let (mut new_terrain, new_flat_spots) = surface::generate_terrain_with_flat_spot(
+        1000,        // num_points
+        0.0,         // min_height (same as initial)
+        100.0,       // max_height (same as initial)
+        0.01,        // base_frequency (same as initial)
+        6,           // octaves (same as initial)
+        0.5,         // persistence (same as initial)
+        landing_spot_terrain_points,
+    );
+    
+    // Apply SAME scaling transformation as initial generation
+    new_terrain.iter_mut().for_each(|h| {
+        *h = *h * 0.4 + 60.0; // Scale 0-100 to 0-40, then offset to 60-100
+    });
+    
+    lander.terrain = new_terrain;
+    lander.flat_spots = vec![new_flat_spots];
+
     // Position lander safely above terrain
     // Terrain is at Y: 60-100, so position lander above at Y: 50 (or lower)
     let initial_world_pos = vec2(0.0, 50.0);
@@ -674,18 +650,6 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         flat_spot_range.0, flat_spot_range.1, landing_spot_terrain_points
     );
 
-    // COMMENTED OUT: Old multi-flat-spot generation approach
-    // let min_flat_length = lander_width_terrain_points;
-    // let max_flat_length = (lander_width_terrain_points as f32 * 1.5) as usize;
-    // let num_flat_spots = macroquad::rand::gen_range(2, 5); // Between 2-4 landing zones (inclusive)
-    // let max_zones = 5;
-    // let flat_spots = surface::add_flat_spots(
-    //     &mut terrain,
-    //     min_flat_length,
-    //     max_flat_length,
-    //     num_flat_spots,
-    //     max_zones,
-    // );
 
     let fonts = load_fonts();
     // Position lander safely above terrain in camera coordinates
@@ -1059,6 +1023,62 @@ fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     }
 
     set_default_camera()
+}
+
+fn debug_render(entity: &Entity) {
+    // Debug: Draw center reticle to show screen center
+    let screen_center_x = screen_width() / 2.0;
+    let screen_center_y = screen_height() / 2.0;
+    // Horizontal line (50 pixels each direction)
+    draw_line(
+        screen_center_x - 50.0,
+        screen_center_y,
+        screen_center_x + 50.0,
+        screen_center_y,
+        2.0,
+        RED,
+    );
+    // Vertical line (50 pixels each direction)
+    draw_line(
+        screen_center_x,
+        screen_center_y - 50.0,
+        screen_center_x,
+        screen_center_y + 50.0,
+        2.0,
+        RED,
+    );
+
+    // Find maximum terrain height for blue marker positioning
+    let max_terrain_height = entity.terrain.iter().cloned().fold(f64::NEG_INFINITY, f64::max) as f32;
+    
+    // Debug: Draw edge markers at maximum terrain height
+    // Left edge marker (10 pixels from left edge)
+    draw_line(
+        0.0,
+        max_terrain_height,
+        10.0,
+        max_terrain_height,
+        2.0,
+        BLUE,
+    );
+    // Right edge marker (10 pixels from right edge toward center)
+    draw_line(
+        screen_width() - 10.0,
+        max_terrain_height,
+        screen_width(),
+        max_terrain_height,
+        2.0,
+        BLUE,
+    );
+    // Center marker (10 pixels straddling center X axis)
+    draw_line(
+        screen_center_x - 5.0,
+        max_terrain_height,
+        screen_center_x + 5.0,
+        max_terrain_height,
+        2.0,
+        BLUE,
+    );
 }
 
 // Main game loop
