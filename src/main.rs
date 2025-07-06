@@ -74,6 +74,102 @@ struct Entity<'a> {
     current_audio: Option<String>,
 }
 
+impl<'a> Entity<'a> {
+    fn new() -> Self {
+        Entity {
+            transform: Transform {
+                size: Vec2::new(0.0, 0.0),
+                position: Vec2::new(0.0, 0.0),
+                rotation: 90.0,
+            },
+            terrain: Vec::new(),
+            flat_spots: Vec::new(),
+            screen_fonts: load_fonts(),
+            physics: Some(Physics {
+                velocity: Vec2::new(0.0, 0.0),
+                acceleration: Vec2::new(0.0, 0.0),
+            }),
+            rocket_physics: Some(RocketPhysics::new_apollo_lm()),
+            renderer_lander: None,
+            renderer_lander_accel: None,
+            renderer_lander_high_accel: None,
+            input: Some(Input),
+            collision: Some(Collision {
+                collider: Rect::new(0.0, 0.0, 64.0, 64.0),
+            }),
+            sound: true,
+            time_elapsed: 0.0,
+            show_debug_info: false,
+            dead: false,
+            mission_success: false,
+            current_audio: None,
+        }
+    }
+
+    fn initialize_with_terrain_and_position(&mut self, lander_texture_size: Vec2) {
+        let num_points = 1000;
+        let min_height = 0.0;
+        let max_height = 100.0;
+        let base_frequency = 0.01;
+        let octaves = 6;
+        let persistence = 0.5;
+
+        // Calculate lander width in terrain coordinate units
+        let current_screen_width = screen_width();
+        let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
+        let lander_width_terrain_points = (lander_texture_size.x * terrain_points_per_pixel) as usize;
+        let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
+
+        // Generate terrain with integrated flat landing spot
+        let (mut terrain, flat_spot_range) = surface::generate_terrain_with_flat_spot(
+            num_points,
+            min_height,
+            max_height,
+            base_frequency,
+            octaves,
+            persistence,
+            landing_spot_terrain_points,
+        );
+
+        // Apply scaling transformation
+        terrain.iter_mut().for_each(|h| {
+            *h = *h * 0.4 + 60.0;
+        });
+
+        self.terrain = terrain;
+        self.flat_spots = vec![flat_spot_range];
+
+        // Set lander size and position
+        self.transform.size = lander_texture_size;
+
+        // Position lander safely above terrain
+        let initial_world_pos = vec2(0.0, 50.0);
+        let tex_center = initial_world_pos;
+        let screen_center = transform_axes(tex_center);
+        self.transform.position = vec2(
+            screen_center.x - lander_texture_size.x / 2.0,
+            screen_center.y - lander_texture_size.y / 2.0,
+        );
+
+        // Reset physics and state
+        self.physics = Some(Physics {
+            velocity: vec2(0.0, 0.0),
+            acceleration: vec2(0.0, 0.0),
+        });
+
+        if let Some(rocket) = &mut self.rocket_physics {
+            rocket.refuel();
+            rocket.stop_thrust();
+        }
+
+        self.time_elapsed = 0.0;
+        self.sound = true;
+        self.dead = false;
+        self.mission_success = false;
+        self.current_audio = None;
+    }
+}
+
 // Define systems
 fn update_physics(entities: &mut Vec<Entity>) {
     let dt = get_frame_time();
@@ -482,63 +578,9 @@ fn stop_lander(lander: &mut Entity) {
 }
 
 fn reset_lander(lander: &mut Entity) {
-    // Reset lander
-
-    // Regenerate terrain with new random flat spot using SAME parameters as initial generation
-    let current_screen_width = screen_width();
-    let lander_width_pixels = lander.transform.size.x;
-    let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
-    let lander_width_terrain_points = (lander_width_pixels * terrain_points_per_pixel) as usize;
-    let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
-    
-    // Use SAME parameters as initial generation
-    let (mut new_terrain, new_flat_spots) = surface::generate_terrain_with_flat_spot(
-        1000,        // num_points
-        0.0,         // min_height (same as initial)
-        100.0,       // max_height (same as initial)
-        0.01,        // base_frequency (same as initial)
-        6,           // octaves (same as initial)
-        0.5,         // persistence (same as initial)
-        landing_spot_terrain_points,
-    );
-    
-    // Apply SAME scaling transformation as initial generation
-    new_terrain.iter_mut().for_each(|h| {
-        *h = *h * 0.4 + 60.0; // Scale 0-100 to 0-40, then offset to 60-100
-    });
-    
-    lander.terrain = new_terrain;
-    lander.flat_spots = vec![new_flat_spots];
-
-    // Position lander safely above terrain
-    // Terrain is at Y: 60-100, so position lander above at Y: 50 (or lower)
-    let initial_world_pos = vec2(0.0, 50.0);
-
-    // Center the rocket by offsetting by half texture size
-    let tex_center = initial_world_pos;
-    let screen_center = transform_axes(tex_center);
-    let lander_size = lander.transform.size;
-    lander.transform.position = vec2(
-        screen_center.x - lander_size.x / 2.0,
-        screen_center.y - lander_size.y / 2.0,
-    );
-    lander.transform.rotation = 90.0;
-    lander.physics = Some(Physics {
-        velocity: vec2(0.0, 0.0),
-        acceleration: vec2(0.0, 0.0),
-    });
-
-    // Reset rocket physics
-    if let Some(rocket) = &mut lander.rocket_physics {
-        rocket.refuel();
-        rocket.stop_thrust();
-    }
-
-    lander.time_elapsed = 0.0;
-    lander.sound = true;
-    lander.dead = false;
-    lander.mission_success = false;
-    lander.current_audio = None;
+    // Reset lander using common initialization method
+    let lander_texture_size = lander.transform.size; // Preserve existing size
+    lander.initialize_with_terrain_and_position(lander_texture_size);
 }
 
 fn load_fonts<'a>() -> Fonts<'a> {
@@ -583,13 +625,6 @@ fn configure_camera() -> Camera2D {
 }
 
 async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
-    let num_points = 1000;
-    let min_height = 0.0;
-    let max_height = 100.0;
-    let base_frequency = 0.01;
-    let octaves = 6;
-    let persistence = 0.5;
-
     // Load textures first to get actual lander dimensions
     let lander_texture = load_texture("assets/images/lander.png")
         .await
@@ -608,12 +643,9 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     );
 
     // Calculate lander width in terrain coordinate units
-    // Terrain array has 1000 points spanning screen_width * 2.0 in camera coordinates
     let current_screen_width = screen_width();
     let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
     let lander_width_terrain_points = (lander_texture_size.x * terrain_points_per_pixel) as usize;
-
-    // Calculate landing spot size: 1.5x lander width for comfortable landing
     let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
 
     debug!(
@@ -625,85 +657,27 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         landing_spot_terrain_points
     );
 
-    // Generate terrain with integrated flat landing spot
-    let (mut terrain, flat_spot_range) = surface::generate_terrain_with_flat_spot(
-        num_points,
-        min_height,
-        max_height,
-        base_frequency,
-        octaves,
-        persistence,
-        landing_spot_terrain_points,
-    );
-
-    // Convert terrain to visible coordinates for camera rendering
-    // Keep terrain in visible range: Y: 60-100 (these show up at bottom of screen)
-    terrain.iter_mut().for_each(|h| {
-        *h = *h * 0.4 + 60.0; // Scale 0-100 to 0-40, then offset to 60-100
+    // Create lander entity with default constructor
+    let mut lander = Entity::new();
+    
+    // Initialize terrain and position using common method
+    lander.initialize_with_terrain_and_position(lander_texture_size);
+    
+    // Set up renderers with loaded textures
+    lander.renderer_lander = Some(Renderer {
+        texture: lander_texture,
     });
-
-    // Convert single flat spot to the expected Vec format for compatibility
-    let flat_spots = vec![flat_spot_range];
+    lander.renderer_lander_accel = Some(Renderer {
+        texture: lander_accel_texture,
+    });
+    lander.renderer_lander_high_accel = Some(Renderer {
+        texture: lander_high_accel_texture,
+    });
 
     debug!(
         "Generated single flat landing spot at positions {}-{} ({} points)",
-        flat_spot_range.0, flat_spot_range.1, landing_spot_terrain_points
+        lander.flat_spots[0].0, lander.flat_spots[0].1, landing_spot_terrain_points
     );
-
-
-    let fonts = load_fonts();
-    // Position lander safely above terrain in camera coordinates
-    // Camera coordinates: (0,0) at screen center, Y increases upward due to inverted zoom
-    let initial_camera_pos = vec2(0.0, -50.0); // Above terrain which is at Y=60-100
-
-    // Convert camera coordinates to screen coordinates (same as transform_axes)
-    let screen_pos = vec2(
-        initial_camera_pos.x + screen_width() / 2.0,
-        -initial_camera_pos.y + screen_height() / 2.0,
-    );
-
-    // Center the rocket by offsetting by half texture size
-    let centered_position = vec2(
-        screen_pos.x - lander_texture_size.x / 2.0,
-        screen_pos.y - lander_texture_size.y / 2.0,
-    );
-
-    // Create lander
-
-    let lander = Entity {
-        transform: Transform {
-            size: lander_texture_size,
-            position: centered_position,
-            rotation: 90.0,
-        },
-        terrain: terrain,
-        flat_spots: flat_spots,
-        screen_fonts: fonts,
-        physics: Some(Physics {
-            velocity: vec2(0.0, 0.0),
-            acceleration: vec2(0.0, 0.0),
-        }),
-        renderer_lander: Some(Renderer {
-            texture: lander_texture,
-        }),
-        renderer_lander_accel: Some(Renderer {
-            texture: lander_accel_texture,
-        }),
-        renderer_lander_high_accel: Some(Renderer {
-            texture: lander_high_accel_texture,
-        }),
-        input: Some(Input),
-        collision: Some(Collision {
-            collider: Rect::new(0.0, 0.0, 64.0, 64.0), // Adjust collider size as needed
-        }),
-        rocket_physics: Some(RocketPhysics::new_apollo_lm()),
-        sound: true,
-        time_elapsed: 0.0,
-        show_debug_info: false,
-        dead: false,
-        mission_success: false,
-        current_audio: None,
-    };
 
     entities.push(lander);
 }
