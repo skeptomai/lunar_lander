@@ -308,13 +308,12 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
 
                 let screen_width = macroquad::window::screen_width();
 
-                // Map terrain X from array index (0-1000) to full camera X coordinate range
-                // Camera zoom is 2.0/screen_width, so visible range is from -1.0 to +1.0 in normalized coords
-                // But we want to use the full screen, so map 0-1000 to -screen_width to +screen_width
-                let x_range = screen_width * 2.0; // Full range across screen
-                let camera_x1 = (i as f32 / 1000.0) * x_range - screen_width;
+                // Map terrain X from array index (0-1000) to camera coordinate range
+                // Original working mapping was 0-1000 to -screen_width to +screen_width
+                // which covers 2x the screen width, but maybe this is correct for this camera setup
+                let camera_x1 = (i as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
                 let camera_y1 = entity.terrain[i] as f32;
-                let camera_x2 = ((i + 1) as f32 / 1000.0) * x_range - screen_width;
+                let camera_x2 = ((i + 1) as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
                 let camera_y2 = entity.terrain[i + 1] as f32;
 
                 // Check if this terrain segment is part of the single flat landing spot
@@ -352,6 +351,7 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                     "Flat spot details: terrain[{}] = {:.1}, terrain[{}] = {:.1}",
                     flat_start, entity.terrain[flat_start], flat_end, entity.terrain[flat_end]
                 );
+                
             }
 
             set_default_camera();
@@ -482,7 +482,7 @@ fn draw_alert_box(entity: &Entity) {
 
 fn handle_input(lander: &mut Entity, audio: &mut Audio) {
     // Handle input
-    if is_key_down(KeyCode::R) {
+    if is_key_released(KeyCode::R) {
         reset_lander(lander);
         update_audio(audio);
     }
