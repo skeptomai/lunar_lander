@@ -748,15 +748,13 @@ fn check_collision(entity: &Entity) -> CollisionType {
     let lander_bottom_y = lander_y;
 
     // Convert lander camera X position to terrain array indices
-    // Reverse of terrain rendering: camera_x = (i / 800.0) * (screen_width * 2.0) - screen_width
-    // So: i = (camera_x + screen_width) / (screen_width * 2.0) * 800.0
+    // Simple 1:1 mapping: camera_x = i, so i = camera_x
     let lander_left_x = lander_x;
     let lander_right_x = lander_x + lander_width;
 
-    // Convert to terrain array indices
-    let terrain_start_idx = (((lander_left_x + screen_width) / (screen_width * 2.0) * 800.0) as i32).max(0) as usize;
-    let terrain_end_idx = (((lander_right_x + screen_width) / (screen_width * 2.0) * 800.0) as i32)
-        .min(799) as usize;
+    // Convert to terrain array indices (simple 1:1 mapping)
+    let terrain_start_idx = (lander_left_x as i32).max(0) as usize;
+    let terrain_end_idx = (lander_right_x as i32).min((entity.terrain.len() - 1) as i32) as usize;
 
     // Safety bounds check
     if terrain_start_idx >= entity.terrain.len() || terrain_end_idx >= entity.terrain.len() {
@@ -795,7 +793,7 @@ fn check_collision(entity: &Entity) -> CollisionType {
 
     for i in terrain_start_idx..=terrain_end_idx {
         let terrain_y = entity.terrain[i] as f32;
-        let terrain_x = (i as f32 / 800.0) * (screen_width * 2.0) - screen_width;
+        let terrain_x = i as f32; // Simple 1:1 mapping
 
         // Check leg collisions (only at lander bottom, in leg zones)
         if leg_zone_bottom <= terrain_y + COLLISION_MARGIN {
