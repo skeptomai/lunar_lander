@@ -116,8 +116,18 @@ impl<'a> Entity<'a> {
         let persistence = 0.5;
 
         // Calculate lander width in terrain coordinate units
-                let lander_width_terrain_points = lander_texture_size.x as usize;
+        // Use consistent calculation with 1:1 pixel mapping
+        let lander_width_terrain_points = lander_texture_size.x as usize;
         let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
+
+        debug!(
+            "Lander width: {:.1} pixels = {} terrain points",
+            lander_texture_size.x, lander_width_terrain_points
+        );
+        debug!(
+            "Landing spot: {} terrain points (1.5x lander width)",
+            landing_spot_terrain_points
+        );
 
         // Generate terrain with integrated flat landing spot
         let (mut terrain, flat_spot_range) = surface::generate_terrain_with_flat_spot(
@@ -239,93 +249,11 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
 
     for entity in entities {
         if let Some(phys) = &entity.physics {
-            if entity.show_debug_info {
-                debug!("position: {:?}", entity.transform.position);
-                debug!("velocity: {:?}", phys.velocity);
-                debug!("acceleration: {:?}", phys.acceleration);
-                if let Some(rocket) = &entity.rocket_physics {
-                    debug!("fuel_mass: {:.1} kg", rocket.fuel_mass);
-                    debug!("total_mass: {:.1} kg", rocket.total_mass());
-                    debug!("thrust_vector: {:?} N", rocket.thrust_vector);
-                    debug!("is_thrusting: {}", rocket.is_thrusting);
-                    debug!("fuel_percentage: {:.1}%", rocket.fuel_percentage());
-                }
-                draw_collision_bounding_box(entity, camera);
-            }
+            render_debug_info(entity, phys, camera);
 
-            // Choose lander texture based on thrust status
-            let o_renderer = if let Some(rocket) = &entity.rocket_physics {
-                if rocket.is_thrusting && rocket.has_fuel() {
-                    let thrust_magnitude = rocket.thrust_vector.length();
-                    if thrust_magnitude > rocket.max_thrust as f32 * 0.7 {
-                        &entity.renderer_lander_high_accel
-                    } else {
-                        &entity.renderer_lander_accel
-                    }
-                } else {
-                    &entity.renderer_lander
-                }
-            } else {
-                // Fallback to old acceleration-based rendering
-                let accel = phys.acceleration;
-                if accel.length() > 0.0 {
-                    if accel.length() > 40.0 {
-                        &entity.renderer_lander_high_accel
-                    } else {
-                        &entity.renderer_lander_accel
-                    }
-                } else {
-                    &entity.renderer_lander
-                }
-            };
+            render_lander(entity, camera);
 
-            if let Some(renderer) = o_renderer {
-                set_camera(camera);
-                draw_texture_ex(
-                    &renderer.lander_texture,
-                    entity.transform.position.x,
-                    entity.transform.position.y,
-                    WHITE,
-                    DrawTextureParams {
-                        dest_size: Some(entity.transform.size), // Set destination size if needed
-                        rotation: entity.transform.rotation.to_radians(),
-                        flip_x: false,
-                        flip_y: false,
-                        ..Default::default()
-                    },
-                );
-            }
-
-            // plot surface
-            for i in 0..(entity.terrain.len() - 1) {
-                // Terrain coordinate mapping: 800 points span full screen width
-                let camera_x1 = i as f32;
-                let camera_y1 = entity.terrain[i] as f32;
-                let camera_x2 = (i + 1) as f32;
-                let camera_y2 = entity.terrain[i + 1] as f32;
-
-                // Check if this terrain segment is part of the single flat landing spot
-                let (flat_start, flat_end) = entity.flat_spots[0];
-                let is_flat_segment = i >= flat_start && (i + 1) <= flat_end;
-
-                let terrain_color = if is_flat_segment {
-                    YELLOW // Bright yellow for the single landing zone
-                } else {
-                    DARKGREEN // Normal terrain color
-                };
-                let line_width = if is_flat_segment { 4.0 } else { 2.0 };
-
-                draw_line(
-                    camera_x1,
-                    camera_y1,
-                    camera_x2,
-                    camera_y2,
-                    line_width,
-                    terrain_color,
-                );
-            }
-
-
+            render_terrain(entity, camera);
 
             if entity.show_debug_info {
                 debug_render(entity);
@@ -338,6 +266,98 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 draw_text(&entity);
             }
         }
+    }
+}
+
+fn render_debug_info(entity: &Entity, phys: &Physics, camera: &Camera2D) {
+    if entity.show_debug_info {
+        debug!("position: {:?}", entity.transform.position);
+        debug!("velocity: {:?}", phys.velocity);
+        debug!("acceleration: {:?}", phys.acceleration);
+        if let Some(rocket) = &entity.rocket_physics {
+            debug!("fuel_mass: {:.1} kg", rocket.fuel_mass);
+            debug!("total_mass: {:.1} kg", rocket.total_mass());
+            debug!("thrust_vector: {:?} N", rocket.thrust_vector);
+            debug!("is_thrusting: {}", rocket.is_thrusting);
+            debug!("fuel_percentage: {:.1}%", rocket.fuel_percentage());
+        }
+        draw_collision_bounding_box(entity, camera);
+    }
+}
+
+fn render_lander(entity: &Entity, camera: &Camera2D) {
+    if let Some(phys) = &entity.physics {
+        // Choose lander texture based on thrust status
+        let o_renderer = if let Some(rocket) = &entity.rocket_physics {
+            if rocket.is_thrusting && rocket.has_fuel() {
+                let thrust_magnitude = rocket.thrust_vector.length();
+                if thrust_magnitude > rocket.max_thrust as f32 * 0.7 {
+                    &entity.renderer_lander_high_accel
+                } else {
+                    &entity.renderer_lander_accel
+                }
+            } else {
+                &entity.renderer_lander
+            }
+        } else {
+            // Fallback to old acceleration-based rendering
+            let accel = phys.acceleration;
+            if accel.length() > 0.0 {
+                if accel.length() > 40.0 {
+                    &entity.renderer_lander_high_accel
+                } else {
+                    &entity.renderer_lander_accel
+                }
+            } else {
+                &entity.renderer_lander
+            }
+        };
+
+        if let Some(renderer) = o_renderer {
+            set_camera(camera);
+            draw_texture_ex(
+                &renderer.lander_texture,
+                entity.transform.position.x,
+                entity.transform.position.y,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(entity.transform.size), // Set destination size if needed
+                    rotation: entity.transform.rotation.to_radians(),
+                    flip_x: false,
+                    flip_y: false,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+}
+
+fn render_terrain(entity: &Entity, _camera: &Camera2D) {
+    // Draw terrain with 1:1 pixel correspondence - much simpler coordinate system
+    for i in 0..entity.terrain.len() - 1 {
+        let start_x = i as f32;
+        let start_y = entity.terrain[i] as f32;
+        let end_x = (i + 1) as f32;
+        let end_y = entity.terrain[i + 1] as f32;
+
+        // Check if BOTH endpoints of this segment are within the flat spot range
+        let flat_spot_range = entity.flat_spots[0]; // We have exactly one flat spot
+        let is_flat_segment = i >= flat_spot_range.0 && (i + 1) <= flat_spot_range.1;
+
+        // Determine color and width based on whether this is a flat landing zone
+        let line_color = if is_flat_segment {
+            YELLOW // Landing zones should be yellow
+        } else {
+            GREEN // Regular terrain should be green
+        };
+
+        let line_width = if is_flat_segment {
+            4.0 // Thicker lines for landing zones
+        } else {
+            2.0 // Regular width for normal terrain
+        };
+
+        draw_line(start_x, start_y, end_x, end_y, line_width, line_color);
     }
 }
 
@@ -699,34 +719,6 @@ fn is_on_flat_spot(terrain_indices: &[usize], flat_spot_range: (usize, usize), l
     false
 }
 
-fn is_terrain_segment_flat(terrain: &Vec<f64>, segment_index: usize) -> bool {
-    // Check if a terrain segment is part of a flat landing zone
-    // Look at a larger window around this segment to detect flat spots (22-33 points)
-    const FLAT_TOLERANCE: f64 = 0.5; // Same tolerance as landing detection
-    const WINDOW_SIZE: usize = 40; // Check 40 points around this segment to catch 22-33 point flat spots
-
-    if segment_index >= terrain.len() {
-        return false;
-    }
-
-    // Define window around this segment
-    let start_idx = segment_index.saturating_sub(WINDOW_SIZE / 2);
-    let end_idx = (segment_index + WINDOW_SIZE / 2).min(terrain.len() - 1);
-
-    if end_idx <= start_idx {
-        return false;
-    }
-
-    // Check if all points in window have similar height
-    let reference_height = terrain[segment_index];
-    for i in start_idx..=end_idx {
-        if (terrain[i] - reference_height).abs() > FLAT_TOLERANCE {
-            return false;
-        }
-    }
-
-    true
-}
 
 fn check_collision(entity: &Entity) -> CollisionType {
     // CAMERA COORDINATE COLLISION DETECTION
