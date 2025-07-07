@@ -19,8 +19,8 @@ const MILLIS_DELAY: u64 = 40;
 const ROTATION_INCREMENT: f32 = 3.0;
 const ACCEL_INCREMENT: f32 = 3.5;
 const FULL_CIRCLE_DEGREES: f32 = 360.0;
-const TEXTURE_SCALE_X: f32 = 0.5;
-const TEXTURE_SCALE_Y: f32 = 0.5;
+const TEXTURE_SCALE_LANDER_X: f32 = 0.5;
+const TEXTURE_SCALE_LANDER_Y: f32 = 0.5;
 const TERRAIN_Y_OFFSET: f64 = 75.0;
 const ALERT_BOX_WIDTH: f32 = 300.0;
 const ALERT_BOX_HEIGHT: f32 = 100.0;
@@ -43,7 +43,7 @@ struct Transform {
     rotation: f32,
 }
 struct Renderer {
-    texture: Texture2D,
+    lander_texture: Texture2D,
     // Other rendering properties
 }
 
@@ -107,7 +107,8 @@ impl<'a> Entity<'a> {
     }
 
     fn initialize_with_terrain_and_position(&mut self, lander_texture_size: Vec2) {
-        let num_points = 1000;
+        let current_screen_width = screen_width();
+        let num_points = current_screen_width as usize; // 800 points for 800px screen
         let min_height = 0.0;
         let max_height = 100.0;
         let base_frequency = 0.01;
@@ -115,8 +116,8 @@ impl<'a> Entity<'a> {
         let persistence = 0.5;
 
         // Calculate lander width in terrain coordinate units
-        let current_screen_width = screen_width();
-        let terrain_points_per_pixel = 1000.0 / (current_screen_width * 2.0);
+        // 800 terrain points span 2× screen width, so points per pixel = 800 / (screen_width * 2)
+        let terrain_points_per_pixel = 800.0 / (current_screen_width * 2.0);
         let lander_width_terrain_points = (lander_texture_size.x * terrain_points_per_pixel) as usize;
         let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
 
@@ -237,8 +238,8 @@ pub fn update_mass_and_velocity(
 }
 
 fn render(entities: &Vec<Entity>, camera: &Camera2D) {
+
     for entity in entities {
-        set_default_camera();
         if let Some(phys) = &entity.physics {
             if entity.show_debug_info {
                 debug!("position: {:?}", entity.transform.position);
@@ -283,7 +284,7 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
             if let Some(renderer) = o_renderer {
                 set_camera(camera);
                 draw_texture_ex(
-                    &renderer.texture,
+                    &renderer.lander_texture,
                     entity.transform.position.x,
                     entity.transform.position.y,
                     WHITE,
@@ -297,33 +298,20 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 );
             }
 
-            // plot surface - convert terrain world coordinates to camera coordinates
-            let mut yellow_segments_drawn = 0;
+            // plot surface
+            let screen_width = macroquad::window::screen_width();
             for i in 0..(entity.terrain.len() - 1) {
-                // Terrain is stored in world coordinates, but camera has limited coordinate range
-                // Camera zoom: 2.0/screen_width means camera X range is roughly -400 to +400 for 800px screen
-                // Camera zoom: -2.0/screen_height means camera Y range is roughly -300 to +300 for 600px screen
-                // Terrain X: 0-1000 needs to map to camera X range
-                // Terrain Y: world coordinates already correct
-
-                let screen_width = macroquad::window::screen_width();
-
-                // Map terrain X from array index (0-1000) to camera coordinate range
-                // Original working mapping was 0-1000 to -screen_width to +screen_width
-                // which covers 2x the screen width, but maybe this is correct for this camera setup
-                let camera_x1 = (i as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
+                // Terrain coordinate mapping: 800 points span full screen width
+                let camera_x1 = (i as f32 / 800.0) * (screen_width * 2.0) - screen_width;
                 let camera_y1 = entity.terrain[i] as f32;
-                let camera_x2 = ((i + 1) as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
+                let camera_x2 = ((i + 1) as f32 / 800.0) * (screen_width * 2.0) - screen_width;
                 let camera_y2 = entity.terrain[i + 1] as f32;
 
                 // Check if this terrain segment is part of the single flat landing spot
-                // We now have exactly one flat spot, so we can access it directly
                 let (flat_start, flat_end) = entity.flat_spots[0];
-                // A line segment should only be highlighted if BOTH endpoints are flat
                 let is_flat_segment = i >= flat_start && (i + 1) <= flat_end;
 
                 let terrain_color = if is_flat_segment {
-                    yellow_segments_drawn += 1;
                     YELLOW // Bright yellow for the single landing zone
                 } else {
                     DARKGREEN // Normal terrain color
@@ -340,27 +328,14 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
                 );
             }
 
-            // Debug: Report highlighting results (first frame only)
-            if entity.time_elapsed < 0.1 {
-                let (flat_start, flat_end) = entity.flat_spots[0];
-                debug!(
-                    "Terrain highlighting: {} yellow segments for single landing zone at {}-{}",
-                    yellow_segments_drawn, flat_start, flat_end
-                );
-                debug!(
-                    "Flat spot details: terrain[{}] = {:.1}, terrain[{}] = {:.1}",
-                    flat_start, entity.terrain[flat_start], flat_end, entity.terrain[flat_end]
-                );
-                
-            }
 
-            set_default_camera();
 
             if entity.show_debug_info {
                 debug_render(entity);
             }
 
             if entity.dead {
+                set_default_camera();
                 draw_alert_box(entity);
             } else {
                 draw_text(&entity);
@@ -370,6 +345,7 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
 }
 
 fn draw_text(entity: &Entity) {
+    set_default_camera();
     let fonts = &entity.screen_fonts;
     let phys = entity.physics.as_ref().unwrap();
 
@@ -638,7 +614,7 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
 
     // Get the actual size of the texture
     let lander_texture_size = lander_texture.size().mul_add(
-        Vec2::new(TEXTURE_SCALE_X, TEXTURE_SCALE_Y),
+        Vec2::new(TEXTURE_SCALE_LANDER_X, TEXTURE_SCALE_LANDER_Y),
         Vec2::new(0.0, 0.0),
     );
 
@@ -665,19 +641,20 @@ async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     
     // Set up renderers with loaded textures
     lander.renderer_lander = Some(Renderer {
-        texture: lander_texture,
+        lander_texture: lander_texture,
     });
     lander.renderer_lander_accel = Some(Renderer {
-        texture: lander_accel_texture,
+        lander_texture: lander_accel_texture,
     });
     lander.renderer_lander_high_accel = Some(Renderer {
-        texture: lander_high_accel_texture,
+        lander_texture: lander_high_accel_texture,
     });
 
     debug!(
         "Generated single flat landing spot at positions {}-{} ({} points)",
         lander.flat_spots[0].0, lander.flat_spots[0].1, landing_spot_terrain_points
     );
+    debug!("Final terrain array length: {}", lander.terrain.len());
 
     entities.push(lander);
 }
@@ -774,16 +751,15 @@ fn check_collision(entity: &Entity) -> CollisionType {
     let lander_bottom_y = lander_y;
 
     // Convert lander camera X position to terrain array indices
-    // Reverse of terrain rendering: camera_x = (i / 1000.0) * (screen_width * 2.0) - screen_width
-    // So: i = (camera_x + screen_width) / (screen_width * 2.0) * 1000.0
+    // Reverse of terrain rendering: camera_x = (i / 800.0) * (screen_width * 2.0) - screen_width
+    // So: i = (camera_x + screen_width) / (screen_width * 2.0) * 800.0
     let lander_left_x = lander_x;
     let lander_right_x = lander_x + lander_width;
 
     // Convert to terrain array indices
-    let terrain_start_idx =
-        (((lander_left_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32).max(0) as usize;
-    let terrain_end_idx = (((lander_right_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32)
-        .min(999) as usize;
+    let terrain_start_idx = (((lander_left_x + screen_width) / (screen_width * 2.0) * 800.0) as i32).max(0) as usize;
+    let terrain_end_idx = (((lander_right_x + screen_width) / (screen_width * 2.0) * 800.0) as i32)
+        .min(799) as usize;
 
     // Safety bounds check
     if terrain_start_idx >= entity.terrain.len() || terrain_end_idx >= entity.terrain.len() {
@@ -822,7 +798,7 @@ fn check_collision(entity: &Entity) -> CollisionType {
 
     for i in terrain_start_idx..=terrain_end_idx {
         let terrain_y = entity.terrain[i] as f32;
-        let terrain_x = (i as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
+        let terrain_x = (i as f32 / 800.0) * (screen_width * 2.0) - screen_width;
 
         // Check leg collisions (only at lander bottom, in leg zones)
         if leg_zone_bottom <= terrain_y + COLLISION_MARGIN {
@@ -977,24 +953,11 @@ fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     let lander_right_x = lander_x + lander_width;
 
     // Convert to terrain array indices (same as collision detection)
-    let terrain_start_idx =
-        (((lander_left_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32).max(0) as usize;
-    let terrain_end_idx = (((lander_right_x + screen_width) / (screen_width * 2.0) * 1000.0) as i32)
-        .min(999) as usize;
+    let terrain_start_idx = (((lander_left_x + screen_width) / (screen_width * 2.0) * 800.0) as i32).max(0) as usize;
+    let terrain_end_idx = (((lander_right_x + screen_width) / (screen_width * 2.0) * 800.0) as i32)
+        .min(799) as usize;
 
-    if terrain_start_idx < entity.terrain.len() && terrain_end_idx < entity.terrain.len() {
-        for i in terrain_start_idx..=terrain_end_idx {
-            let terrain_y = entity.terrain[i] as f32;
-            // Convert terrain index back to camera X coordinate for drawing
-            let terrain_camera_x = (i as f32 / 1000.0) * (screen_width * 2.0) - screen_width;
-            draw_circle(
-                terrain_camera_x,
-                terrain_y,
-                3.0,
-                Color::from([0.0, 1.0, 1.0, 1.0]),
-            ); // Cyan
-        }
-    }
+    // Debug collision points removed for cleaner display
 
     set_default_camera()
 }
