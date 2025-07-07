@@ -108,7 +108,7 @@ impl<'a> Entity<'a> {
 
     fn initialize_with_terrain_and_position(&mut self, lander_texture_size: Vec2) {
         let current_screen_width = screen_width();
-        let num_points = current_screen_width as usize; // 800 points for 800px screen
+        let num_points = current_screen_width as usize;
         let min_height = 0.0;
         let max_height = 100.0;
         let base_frequency = 0.01;
@@ -116,9 +116,7 @@ impl<'a> Entity<'a> {
         let persistence = 0.5;
 
         // Calculate lander width in terrain coordinate units
-        // 800 terrain points span 2× screen width, so points per pixel = 800 / (screen_width * 2)
-        let terrain_points_per_pixel = 800.0 / (current_screen_width * 2.0);
-        let lander_width_terrain_points = (lander_texture_size.x * terrain_points_per_pixel) as usize;
+                let lander_width_terrain_points = lander_texture_size.x as usize;
         let landing_spot_terrain_points = (lander_width_terrain_points as f32 * 1.5) as usize;
 
         // Generate terrain with integrated flat landing spot
@@ -299,12 +297,11 @@ fn render(entities: &Vec<Entity>, camera: &Camera2D) {
             }
 
             // plot surface
-            let screen_width = macroquad::window::screen_width();
             for i in 0..(entity.terrain.len() - 1) {
                 // Terrain coordinate mapping: 800 points span full screen width
-                let camera_x1 = (i as f32 / 800.0) * (screen_width * 2.0) - screen_width;
+                let camera_x1 = i as f32;
                 let camera_y1 = entity.terrain[i] as f32;
-                let camera_x2 = ((i + 1) as f32 / 800.0) * (screen_width * 2.0) - screen_width;
+                let camera_x2 = (i + 1) as f32;
                 let camera_y2 = entity.terrain[i + 1] as f32;
 
                 // Check if this terrain segment is part of the single flat landing spot
