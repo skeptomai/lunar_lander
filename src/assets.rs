@@ -12,30 +12,26 @@ pub fn load_fonts<'a>() -> Fonts<'a> {
     fonts
 }
 
-/// Loads all lander texture assets asynchronously.
+/// Loads lander and thrust texture assets asynchronously.
 ///
-/// This function loads the three lander textures:
-/// - Normal lander (no thrust)
-/// - Acceleration lander (low-medium thrust)
-/// - High acceleration lander (high thrust)
+/// This function loads the two texture components:
+/// - Lander texture (main spacecraft body)
+/// - Thrust texture (engine flames, rendered beneath lander when thrusting)
 ///
 /// # Returns
 ///
-/// A tuple containing `(normal_texture, accel_texture, high_accel_texture)`
+/// A tuple containing `(lander_texture, thrust_texture)`
 ///
 /// # Panics
 ///
 /// Panics if any texture file cannot be loaded from the assets directory
-pub async fn load_lander_textures() -> (Texture2D, Texture2D, Texture2D) {
-    let lander_texture = load_texture("assets/images/lander.png")
+pub async fn load_lander_textures() -> (Texture2D, Texture2D) {
+    let lander_texture = load_texture("assets/images/lander-upright.png")
         .await
-        .expect("Failed to load texture");
-    let lander_accel_texture = load_texture("assets/images/lander-accel.png")
+        .expect("Failed to load lander texture");
+    let thrust_texture = load_texture("assets/images/thrust.png")
         .await
-        .expect("Failed to load texture");
-    let lander_high_accel_texture = load_texture("assets/images/lander-high-accel.png")
-        .await
-        .expect("Failed to load texture");
+        .expect("Failed to load thrust texture");
 
-    (lander_texture, lander_accel_texture, lander_high_accel_texture)
+    (lander_texture, thrust_texture)
 }

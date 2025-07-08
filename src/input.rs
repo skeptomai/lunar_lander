@@ -36,7 +36,8 @@ pub fn handle_input(lander: &mut Entity, audio: &mut Audio) {
     if let Some(rocket) = &mut lander.rocket_physics {
         if is_key_down(KeyCode::Up) && rocket.has_fuel() && !lander.dead {
             // Calculate thrust direction based on lander orientation
-            let angle = lander.transform.rotation.to_radians();
+            // 0° = up, so add 90° to convert to standard math coordinates
+            let angle = (lander.transform.rotation + 90.0).to_radians();
             let thrust_direction = vec2(angle.cos(), angle.sin());
 
             // Apply thrust vector (magnitude determined by max_thrust)

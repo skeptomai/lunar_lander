@@ -270,19 +270,15 @@ pub fn check_collision(entity: &Entity) -> CollisionType {
         if let Some(physics) = &entity.physics {
             let landing_velocity = physics.velocity.length();
             
-            // Check lander angle relative to vertical (90 degrees is straight up)
+            // Check lander angle relative to vertical (0 degrees is straight up)
             // Convert rotation from degrees to a normalized angle from vertical
             let lander_angle = entity.transform.rotation;
             // Normalize to 0-360 range
             let normalized_angle = lander_angle.rem_euclid(360.0);
-            // Calculate deviation from vertical (90 degrees)
-            let angle_from_vertical = (normalized_angle - 90.0).abs();
-            // Handle wraparound case (e.g., 270 degrees = 90 degrees from vertical on other side)
-            let angle_deviation = if angle_from_vertical > 180.0 {
-                360.0 - angle_from_vertical
-            } else {
-                angle_from_vertical
-            };
+            // Calculate deviation from vertical (0 degrees)
+            let angle_from_vertical = normalized_angle.min(360.0 - normalized_angle);
+            // angle_from_vertical already handles wraparound correctly
+            let angle_deviation = angle_from_vertical;
             
             // Check both velocity and angle requirements
             let velocity_ok = landing_velocity <= MAX_LANDING_VELOCITY;
@@ -374,83 +370,53 @@ mod tests {
         // Test the angle calculation logic used in collision detection
         // This tests the same logic as used in check_collision without requiring macroquad context
         
-        // Test 1: Vertical landing (90 degrees) - should succeed
-        let rotation: f32 = 90.0;
+        // Test 1: Vertical landing (0 degrees) - should succeed
+        let rotation: f32 = 0.0;
         let normalized_angle = rotation.rem_euclid(360.0);
-        let angle_from_vertical = (normalized_angle - 90.0).abs();
-        let angle_deviation = if angle_from_vertical > 180.0 {
-            360.0 - angle_from_vertical
-        } else {
-            angle_from_vertical
-        };
-        assert!(angle_deviation <= MAX_LANDING_ANGLE_DEGREES, 
+        let angle_from_vertical = normalized_angle.min(360.0 - normalized_angle);
+        assert!(angle_from_vertical <= MAX_LANDING_ANGLE_DEGREES, 
                 "Vertical lander ({}°) should be within angle limit, deviation: {}°", 
-                rotation, angle_deviation);
+                rotation, angle_from_vertical);
         
         // Test 2: Slightly tilted (10 degrees from vertical) - should succeed  
-        let rotation: f32 = 80.0; // 10 degrees left of vertical
+        let rotation: f32 = 10.0; // 10 degrees right of vertical
         let normalized_angle = rotation.rem_euclid(360.0);
-        let angle_from_vertical = (normalized_angle - 90.0).abs();
-        let angle_deviation = if angle_from_vertical > 180.0 {
-            360.0 - angle_from_vertical
-        } else {
-            angle_from_vertical
-        };
-        assert!(angle_deviation <= MAX_LANDING_ANGLE_DEGREES, 
+        let angle_from_vertical = normalized_angle.min(360.0 - normalized_angle);
+        assert!(angle_from_vertical <= MAX_LANDING_ANGLE_DEGREES, 
                 "Slightly tilted lander ({}°) should be within angle limit, deviation: {}°", 
-                rotation, angle_deviation);
+                rotation, angle_from_vertical);
         
         // Test 3: Too tilted (20 degrees from vertical) - should fail
-        let rotation: f32 = 70.0; // 20 degrees left of vertical
+        let rotation: f32 = 20.0; // 20 degrees right of vertical
         let normalized_angle = rotation.rem_euclid(360.0);
-        let angle_from_vertical = (normalized_angle - 90.0).abs();
-        let angle_deviation = if angle_from_vertical > 180.0 {
-            360.0 - angle_from_vertical
-        } else {
-            angle_from_vertical
-        };
-        assert!(angle_deviation > MAX_LANDING_ANGLE_DEGREES, 
+        let angle_from_vertical = normalized_angle.min(360.0 - normalized_angle);
+        assert!(angle_from_vertical > MAX_LANDING_ANGLE_DEGREES, 
                 "Heavily tilted lander ({}°) should exceed angle limit, deviation: {}°", 
-                rotation, angle_deviation);
+                rotation, angle_from_vertical);
         
-        // Test 4: Upside down (270 degrees = 180 degrees from vertical) - should fail
-        let rotation: f32 = 270.0;
+        // Test 4: Upside down (180 degrees = 180 degrees from vertical) - should fail
+        let rotation: f32 = 180.0;
         let normalized_angle = rotation.rem_euclid(360.0);
-        let angle_from_vertical = (normalized_angle - 90.0).abs();
-        let angle_deviation = if angle_from_vertical > 180.0 {
-            360.0 - angle_from_vertical
-        } else {
-            angle_from_vertical
-        };
-        assert!(angle_deviation > MAX_LANDING_ANGLE_DEGREES, 
+        let angle_from_vertical = normalized_angle.min(360.0 - normalized_angle);
+        assert!(angle_from_vertical > MAX_LANDING_ANGLE_DEGREES, 
                 "Upside down lander ({}°) should exceed angle limit, deviation: {}°", 
-                rotation, angle_deviation);
+                rotation, angle_from_vertical);
         
-        // Test 5: Right-side tilted (100 degrees = 10 degrees right of vertical) - should succeed
-        let rotation: f32 = 100.0; // 10 degrees right of vertical
+        // Test 5: Left-side tilted (350 degrees = 10 degrees left of vertical) - should succeed
+        let rotation: f32 = 350.0; // 10 degrees left of vertical
         let normalized_angle = rotation.rem_euclid(360.0);
-        let angle_from_vertical = (normalized_angle - 90.0).abs();
-        let angle_deviation = if angle_from_vertical > 180.0 {
-            360.0 - angle_from_vertical
-        } else {
-            angle_from_vertical
-        };
-        assert!(angle_deviation <= MAX_LANDING_ANGLE_DEGREES, 
-                "Right-tilted lander ({}°) should be within angle limit, deviation: {}°", 
-                rotation, angle_deviation);
+        let angle_from_vertical = normalized_angle.min(360.0 - normalized_angle);
+        assert!(angle_from_vertical <= MAX_LANDING_ANGLE_DEGREES, 
+                "Left-tilted lander ({}°) should be within angle limit, deviation: {}°", 
+                rotation, angle_from_vertical);
         
         // Test 6: Edge case - exactly at the limit (15 degrees from vertical) - should succeed
-        let rotation: f32 = 75.0; // Exactly 15 degrees left of vertical
+        let rotation: f32 = 15.0; // Exactly 15 degrees right of vertical
         let normalized_angle = rotation.rem_euclid(360.0);
-        let angle_from_vertical = (normalized_angle - 90.0).abs();
-        let angle_deviation = if angle_from_vertical > 180.0 {
-            360.0 - angle_from_vertical
-        } else {
-            angle_from_vertical
-        };
-        assert!(angle_deviation <= MAX_LANDING_ANGLE_DEGREES, 
+        let angle_from_vertical = normalized_angle.min(360.0 - normalized_angle);
+        assert!(angle_from_vertical <= MAX_LANDING_ANGLE_DEGREES, 
                 "Lander at exact limit ({}°) should be within angle limit, deviation: {}°", 
-                rotation, angle_deviation);
+                rotation, angle_from_vertical);
     }
     
     #[test]

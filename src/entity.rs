@@ -45,8 +45,7 @@ pub struct Entity<'a> {
     pub physics: Option<Physics>,
     pub rocket_physics: Option<RocketEngine>,
     pub renderer_lander: Option<Renderer>,
-    pub renderer_lander_accel: Option<Renderer>,
-    pub renderer_lander_high_accel: Option<Renderer>,
+    pub renderer_thrust: Option<Renderer>,
     pub input: Option<Input>,
     pub collision: Option<Collision>,
     pub sound: bool,
@@ -63,7 +62,7 @@ impl<'a> Entity<'a> {
             transform: Transform {
                 size: Vec2::new(0.0, 0.0),
                 position: Vec2::new(0.0, 0.0),
-                rotation: 90.0,
+                rotation: 0.0,
             },
             terrain: Vec::new(),
             flat_spots: Vec::new(),
@@ -72,8 +71,7 @@ impl<'a> Entity<'a> {
             physics: Some(Physics::new(23200.0)), // Apollo LM total mass
             rocket_physics: Some(RocketEngine::new_apollo_lm()),
             renderer_lander: None,
-            renderer_lander_accel: None,
-            renderer_lander_high_accel: None,
+            renderer_thrust: None,
             input: Some(Input),
             collision: Some(Collision {
                 collider: Rect::new(0.0, 0.0, 64.0, 64.0),
@@ -167,7 +165,7 @@ impl<'a> Entity<'a> {
 
 pub async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     // Load textures first to get actual lander dimensions
-    let (lander_texture, lander_accel_texture, lander_high_accel_texture) = load_lander_textures().await;
+    let (lander_texture, thrust_texture) = load_lander_textures().await;
 
     // Get the actual size of the texture
     let lander_texture_size = lander_texture.size().mul_add(
@@ -200,11 +198,8 @@ pub async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     lander.renderer_lander = Some(Renderer {
         lander_texture: lander_texture,
     });
-    lander.renderer_lander_accel = Some(Renderer {
-        lander_texture: lander_accel_texture,
-    });
-    lander.renderer_lander_high_accel = Some(Renderer {
-        lander_texture: lander_high_accel_texture,
+    lander.renderer_thrust = Some(Renderer {
+        lander_texture: thrust_texture,
     });
 
     debug!("Generated {} landing zones:", lander.landing_zones.len());

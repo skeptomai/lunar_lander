@@ -76,57 +76,81 @@ pub fn render_debug_info(entity: &Entity, phys: &Physics, camera: &Camera2D) {
     }
 }
 
-/// Renders the lunar lander with appropriate texture based on thrust status.
+/// Renders the lunar lander and thrust flames as separate components.
 ///
-/// The lander texture selection depends on current thrust levels:
-/// - Normal texture: No thrust or out of fuel
-/// - Acceleration texture: Low to medium thrust
-/// - High acceleration texture: High thrust (>70% of maximum)
+/// The rendering consists of:
+/// - Lander texture: Always rendered at the entity position
+/// - Thrust texture: Rendered beneath lander when thrusting, scaled and rotated with lander
 ///
 /// # Arguments
 ///
 /// * `entity` - The lander entity to render
 /// * `camera` - Camera for coordinate transformations
 pub fn render_lander(entity: &Entity, camera: &Camera2D) {
-    if let Some(phys) = &entity.physics {
-        // Choose lander texture based on thrust status
-        let o_renderer = if let Some(rocket) = &entity.rocket_physics {
-            if rocket.is_thrusting && rocket.has_fuel() {
-                let thrust_magnitude = rocket.thrust_vector.length();
-                if thrust_magnitude > rocket.max_thrust as f32 * 0.7 {
-                    &entity.renderer_lander_high_accel
-                } else {
-                    &entity.renderer_lander_accel
-                }
-            } else {
-                &entity.renderer_lander
-            }
-        } else {
-            // Fallback to force-based rendering
-            let force_magnitude = phys.forces.length();
-            if force_magnitude > 0.0 {
-                if force_magnitude > 40.0 * phys.mass as f32 {
-                    &entity.renderer_lander_high_accel
-                } else {
-                    &entity.renderer_lander_accel
-                }
-            } else {
-                &entity.renderer_lander
-            }
-        };
-
-        if let Some(renderer) = o_renderer {
-            set_camera(camera);
+    set_camera(camera);
+    
+    // Thrust flame scale factor relative to lander (easy to adjust)
+    const THRUST_SCALE_FACTOR: f32 = 0.75;
+    
+    // Always render the main lander texture
+    if let Some(lander_renderer) = &entity.renderer_lander {
+        draw_texture_ex(
+            &lander_renderer.lander_texture,
+            entity.transform.position.x,
+            entity.transform.position.y,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(entity.transform.size),
+                rotation: entity.transform.rotation.to_radians(),
+                flip_x: false,
+                flip_y: true,
+                ..Default::default()
+            },
+        );
+    }
+    
+    // Render thrust flames when thrusting
+    let should_render_thrust = if let Some(rocket) = &entity.rocket_physics {
+        rocket.is_thrusting && rocket.has_fuel()
+    } else if let Some(phys) = &entity.physics {
+        // Fallback to force-based detection
+        phys.forces.length() > 0.0
+    } else {
+        false
+    };
+    
+    if should_render_thrust {
+        if let Some(thrust_renderer) = &entity.renderer_thrust {
+            // Calculate thrust flame size
+            let thrust_size = entity.transform.size * THRUST_SCALE_FACTOR;
+            
+            // Calculate position beneath lander (touching lander bottom)
+            let angle = entity.transform.rotation.to_radians();
+            let lander_center_x = entity.transform.position.x + entity.transform.size.x * 0.5;
+            let lander_center_y = entity.transform.position.y + entity.transform.size.y * 0.5;
+            
+            // Offset distance: half lander height + half thrust height (so they touch)
+            let offset_distance = (entity.transform.size.y + thrust_size.y) * 0.5;
+            
+            // Calculate thrust position (beneath lander in the direction opposite to lander's "up")
+            // Since 0° is "up", thrust should be in the opposite direction (180° rotated)
+            let thrust_center_x = lander_center_x + (angle.sin() * offset_distance);
+            let thrust_center_y = lander_center_y - (angle.cos() * offset_distance);
+            
+            // Position thrust texture (top-left corner for rendering)
+            let thrust_x = thrust_center_x - thrust_size.x * 0.5;
+            let thrust_y = thrust_center_y - thrust_size.y * 0.5;
+            
             draw_texture_ex(
-                &renderer.lander_texture,
-                entity.transform.position.x,
-                entity.transform.position.y,
+                &thrust_renderer.lander_texture,
+                thrust_x,
+                thrust_y,
                 WHITE,
                 DrawTextureParams {
-                    dest_size: Some(entity.transform.size),
+                    dest_size: Some(thrust_size),
                     rotation: entity.transform.rotation.to_radians(),
                     flip_x: false,
-                    flip_y: false,
+                    flip_y: true,
                     ..Default::default()
                 },
             );
