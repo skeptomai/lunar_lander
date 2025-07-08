@@ -1,8 +1,8 @@
 use macroquad::prelude::*;
 
-/// Improved rocket physics component with realistic parameters
+/// Rocket engine component with realistic propulsion parameters
 #[derive(Debug, Clone)]
-pub struct RocketPhysics {
+pub struct RocketEngine {
     pub dry_mass: f64,           // Mass without fuel (kg)
     pub fuel_mass: f64,          // Current fuel mass (kg)
     pub max_fuel_mass: f64,      // Maximum fuel capacity (kg)
@@ -12,7 +12,7 @@ pub struct RocketPhysics {
     pub is_thrusting: bool,      // Whether engine is firing
 }
 
-impl RocketPhysics {
+impl RocketEngine {
     /// Create a new rocket with Apollo Lunar Module specifications (enhanced for gameplay)
     pub fn new_apollo_lm() -> Self {
         Self {
@@ -51,60 +51,79 @@ impl RocketPhysics {
         self.thrust_vector = Vec2::ZERO;
         self.is_thrusting = false;
     }
+
+    /// Generate thrust force with proper Tsiolkovsky equation implementation
+    ///
+    /// This implementation properly handles:
+    /// - Variable mass flow based on actual thrust
+    /// - 2D thrust vectors
+    /// - Realistic fuel consumption
+    /// Returns the thrust force vector to be applied to physics
+    pub fn generate_thrust(&mut self, dt: f32) -> Vec2 {
+        if !self.is_thrusting || self.fuel_mass <= 0.0 {
+            self.thrust_vector = Vec2::ZERO;
+            return Vec2::ZERO;
+        }
+
+        // Calculate thrust magnitude (clamped to available fuel and max thrust)
+        let thrust_magnitude = self.thrust_vector.length().min(self.max_thrust as f32);
+
+        if thrust_magnitude > 0.0 {
+            // Calculate mass flow rate from thrust and exhaust velocity
+            // F = dm/dt * v_e, so dm/dt = F / v_e
+            let mass_flow_rate = (thrust_magnitude as f64) / self.exhaust_velocity;
+
+            // Update fuel mass
+            let fuel_consumed = mass_flow_rate * (dt as f64);
+            self.fuel_mass = (self.fuel_mass - fuel_consumed).max(0.0);
+
+            // Return thrust force vector
+            self.thrust_vector
+        } else {
+            Vec2::ZERO
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct Physics {
     pub velocity: Vec2,
-    pub acceleration: Vec2,
+    pub mass: f64,
+    pub forces: Vec2,  // Accumulated forces for this frame
 }
 
 impl Physics {
-    pub fn new() -> Self {
+    pub fn new(mass: f64) -> Self {
         Self {
             velocity: Vec2::ZERO,
-            acceleration: Vec2::ZERO,
+            mass,
+            forces: Vec2::ZERO,
         }
     }
 
-}
-
-/// Advanced rocket physics using proper Tsiolkovsky equation implementation
-///
-/// This implementation properly handles:
-/// - Variable mass flow based on actual thrust
-/// - 2D thrust vectors
-/// - Proper force-based acceleration
-/// - Separate gravity handling
-pub fn update_rocket_physics(rocket: &mut RocketPhysics, physics: &mut Physics, dt: f32) {
-    if !rocket.is_thrusting || rocket.fuel_mass <= 0.0 {
-        rocket.thrust_vector = Vec2::ZERO;
-        return;
+    /// Reset forces to zero (call at start of each frame)
+    pub fn reset_forces(&mut self) {
+        self.forces = Vec2::ZERO;
     }
 
-    let current_total_mass = rocket.total_mass();
+    /// Add a force to be applied this frame
+    pub fn add_force(&mut self, force: Vec2) {
+        self.forces += force;
+    }
 
-    // Calculate thrust magnitude (clamped to available fuel and max thrust)
-    let thrust_magnitude = rocket.thrust_vector.length().min(rocket.max_thrust as f32);
-
-    if thrust_magnitude > 0.0 {
-        // Calculate mass flow rate from thrust and exhaust velocity
-        // F = dm/dt * v_e, so dm/dt = F / v_e
-        let mass_flow_rate = (thrust_magnitude as f64) / rocket.exhaust_velocity;
-
-        // Update fuel mass
-        let fuel_consumed = mass_flow_rate * (dt as f64);
-        rocket.fuel_mass = (rocket.fuel_mass - fuel_consumed).max(0.0);
-
-        // Apply thrust acceleration: F = ma, so a = F/m
-        let thrust_acceleration = rocket.thrust_vector / (current_total_mass as f32);
-        physics.acceleration += thrust_acceleration;
+    /// Integrate forces into motion using F = ma
+    pub fn integrate(&mut self, dt: f32) {
+        if self.mass > 0.0 {
+            let acceleration = self.forces / self.mass as f32;
+            self.velocity += acceleration * dt;
+        }
     }
 }
+
 
 /// Calculate delta-V capability of rocket with current fuel
 /// This is useful for mission planning
-pub fn calculate_delta_v(rocket: &RocketPhysics) -> f64 {
+pub fn calculate_delta_v(rocket: &RocketEngine) -> f64 {
     if rocket.fuel_mass <= 0.0 {
         return 0.0;
     }
@@ -123,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_apollo_lm_specs() {
-        let rocket = RocketPhysics::new_apollo_lm();
+        let rocket = RocketEngine::new_apollo_lm();
         assert_eq!(rocket.dry_mass, 15000.0);
         assert_eq!(rocket.fuel_mass, 8200.0);
         assert_eq!(rocket.total_mass(), 23200.0);
@@ -132,7 +151,7 @@ mod tests {
 
     #[test]
     fn test_delta_v_calculation() {
-        let rocket = RocketPhysics::new_apollo_lm();
+        let rocket = RocketEngine::new_apollo_lm();
         let delta_v = calculate_delta_v(&rocket);
 
         // With our current values: dry_mass=15000, fuel_mass=8200, exhaust_velocity=3050
@@ -143,16 +162,21 @@ mod tests {
 
     #[test]
     fn test_fuel_consumption() {
-        let mut rocket = RocketPhysics::new_apollo_lm();
-        let mut physics = Physics::new();
+        let mut rocket = RocketEngine::new_apollo_lm();
+        let mut physics = Physics::new(rocket.total_mass());
 
         rocket.is_thrusting = true;
         rocket.thrust_vector = Vec2::new(0.0, rocket.max_thrust as f32);
 
         let initial_fuel = rocket.fuel_mass;
-        update_rocket_physics(&mut rocket, &mut physics, 1.0); // 1 second
+        let thrust_force = rocket.generate_thrust(1.0); // 1 second
 
         assert!(rocket.fuel_mass < initial_fuel, "Fuel should be consumed during thrust");
-        assert!(physics.acceleration.length() > 0.0, "Should have acceleration from thrust");
+        assert!(thrust_force.length() > 0.0, "Should generate thrust force");
+        
+        // Test force integration
+        physics.add_force(thrust_force);
+        physics.integrate(1.0);
+        assert!(physics.velocity.length() > 0.0, "Should have velocity from thrust");
     }
 }

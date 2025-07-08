@@ -86,7 +86,7 @@ pub fn handle_input(lander: &mut Entity, audio: &mut Audio) {
 pub fn stop_lander(lander: &mut Entity) {
     if let Some(phys) = lander.physics.as_mut() {
         phys.velocity = vec2(0.0, 0.0);
-        phys.acceleration = vec2(0.0, 0.0);
+        phys.forces = vec2(0.0, 0.0);
     }
     if let Some(rocket) = &mut lander.rocket_physics {
         rocket.stop_thrust();

@@ -16,7 +16,7 @@ mod audio;
 mod utils;
 mod assets;
 
-use physics::{update_rocket_physics, Physics, RocketPhysics};
+use physics::{Physics, RocketEngine};
 use entity::{Entity, add_lander_entity};
 use collision::{CollisionType, check_collision};
 use input::{handle_input, stop_lander};
@@ -39,19 +39,24 @@ fn update_physics(entities: &mut Vec<Entity>) {
         }
 
         if let Some(physics) = &mut entity.physics {
-            // Reset acceleration for this frame
-            physics.acceleration = Vec2::ZERO;
+            // Reset forces for this frame
+            physics.reset_forces();
 
-            // Apply gravity
-            physics.acceleration.y -= ACCEL_GRAV_Y;
+            // Apply gravity force
+            let gravity_force = Vec2::new(0.0, -ACCEL_GRAV_Y * physics.mass as f32);
+            physics.add_force(gravity_force);
 
-            // Update rocket physics if present
+            // Generate thrust force if rocket engine present
             if let Some(rocket) = &mut entity.rocket_physics {
-                update_rocket_physics(rocket, physics, dt);
+                // Update physics mass based on current rocket mass
+                physics.mass = rocket.total_mass();
+                
+                let thrust_force = rocket.generate_thrust(dt);
+                physics.add_force(thrust_force);
             }
 
-            // Integrate velocity and position using proper timestep
-            physics.velocity += physics.acceleration * dt;
+            // Integrate forces into motion
+            physics.integrate(dt);
             entity.transform.position += physics.velocity * dt;
 
             // Wrap around screen (maintain lunar lander behavior)
@@ -111,7 +116,7 @@ async fn main() {
                 }
             }
 
-            // Check for empty fuel using rocket physics
+            // Check for empty fuel using rocket engine
             // Note: Running out of fuel doesn't end the mission - just prevents thrust
             if let Some(rocket) = &lander.rocket_physics {
                 if !rocket.has_fuel() {

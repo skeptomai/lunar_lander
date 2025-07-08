@@ -50,8 +50,8 @@ The codebase has been refactored for better maintainability:
 
 **Components:**
 - `Transform`: Position, size, rotation
-- `Physics`: Velocity and acceleration (`src/physics.rs`)
-- `RocketPhysics`: Realistic rocket parameters and fuel management (`src/physics.rs`)
+- `Physics`: Force-based kinematics with mass, velocity, and force accumulation (`src/physics.rs`)
+- `RocketEngine`: Realistic rocket propulsion system with fuel management (`src/physics.rs`)
 - `Renderer`: Texture and rendering properties
 - `Collision`: Collision detection
 
@@ -59,8 +59,8 @@ The codebase has been refactored for better maintainability:
 - `Entity` struct contains all components plus game-specific data like terrain, fonts
 
 **Systems:**
-- `update_physics()`: Proper physics integration with realistic timestep
-- `update_rocket_physics()`: Advanced rocket thrust and fuel consumption (`src/physics.rs`)
+- `update_physics()`: Force-based physics integration with realistic timestep
+- `RocketEngine::generate_thrust()`: Advanced rocket thrust and fuel consumption (`src/physics.rs`)
 - `render()`: Draws all visual elements with thrust-based texture selection
 - `handle_input()`: Enhanced input handling with proper thrust management
 - `check_collision()`: Terrain collision detection
@@ -68,7 +68,7 @@ The codebase has been refactored for better maintainability:
 ### Key Modules (Updated)
 
 **main.rs**: Core game loop, entity management, rendering, input handling
-**physics.rs**: Advanced rocket physics with proper equations and realistic parameters
+**physics.rs**: Force-based physics system and rocket engine with proper equations and realistic parameters
 **surface.rs**: Procedural terrain generation using Perlin noise and flat landing spots
 
 ### Modern Rust Practices Applied

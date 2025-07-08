@@ -31,7 +31,7 @@ pub fn render_debug_info(entity: &Entity, phys: &Physics, camera: &Camera2D) {
     if entity.show_debug_info {
         debug!("position: {:?}", entity.transform.position);
         debug!("velocity: {:?}", phys.velocity);
-        debug!("acceleration: {:?}", phys.acceleration);
+        debug!("forces: {:?}", phys.forces);
         if let Some(rocket) = &entity.rocket_physics {
             debug!("fuel_mass: {:.1} kg", rocket.fuel_mass);
             debug!("total_mass: {:.1} kg", rocket.total_mass());
@@ -58,10 +58,10 @@ pub fn render_lander(entity: &Entity, camera: &Camera2D) {
                 &entity.renderer_lander
             }
         } else {
-            // Fallback to old acceleration-based rendering
-            let accel = phys.acceleration;
-            if accel.length() > 0.0 {
-                if accel.length() > 40.0 {
+            // Fallback to force-based rendering
+            let force_magnitude = phys.forces.length();
+            if force_magnitude > 0.0 {
+                if force_magnitude > 40.0 * phys.mass as f32 {
                     &entity.renderer_lander_high_accel
                 } else {
                     &entity.renderer_lander_accel

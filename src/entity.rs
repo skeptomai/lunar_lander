@@ -2,7 +2,7 @@ use macroquad::prelude::*;
 use macroquad_text::Fonts;
 
 use crate::assets::load_fonts;
-use crate::physics::{Physics, RocketPhysics};
+use crate::physics::{Physics, RocketEngine};
 use crate::rendering::load_lander_textures;
 use crate::surface;
 use crate::utils::transform_axes;
@@ -43,7 +43,7 @@ pub struct Entity<'a> {
     pub flat_spots: Vec<(usize, usize)>, // Store flat spot ranges for direct reference
     pub screen_fonts: Fonts<'a>,
     pub physics: Option<Physics>,
-    pub rocket_physics: Option<RocketPhysics>,
+    pub rocket_physics: Option<RocketEngine>,
     pub renderer_lander: Option<Renderer>,
     pub renderer_lander_accel: Option<Renderer>,
     pub renderer_lander_high_accel: Option<Renderer>,
@@ -68,11 +68,8 @@ impl<'a> Entity<'a> {
             terrain: Vec::new(),
             flat_spots: Vec::new(),
             screen_fonts: load_fonts(),
-            physics: Some(Physics {
-                velocity: Vec2::new(0.0, 0.0),
-                acceleration: Vec2::new(0.0, 0.0),
-            }),
-            rocket_physics: Some(RocketPhysics::new_apollo_lm()),
+            physics: Some(Physics::new(23200.0)), // Apollo LM total mass
+            rocket_physics: Some(RocketEngine::new_apollo_lm()),
             renderer_lander: None,
             renderer_lander_accel: None,
             renderer_lander_high_accel: None,
@@ -144,10 +141,12 @@ impl<'a> Entity<'a> {
         );
 
         // Reset physics and state
-        self.physics = Some(Physics {
-            velocity: vec2(0.0, 0.0),
-            acceleration: vec2(0.0, 0.0),
-        });
+        let total_mass = if let Some(rocket) = &self.rocket_physics {
+            rocket.total_mass()
+        } else {
+            23200.0 // Default Apollo LM mass
+        };
+        self.physics = Some(Physics::new(total_mass));
 
         if let Some(rocket) = &mut self.rocket_physics {
             rocket.refuel();
