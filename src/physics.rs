@@ -1,3 +1,15 @@
+//! Advanced rocket physics system with realistic Apollo Lunar Module specifications.
+//!
+//! This module implements proper rocket physics using:
+//! - Tsiolkovsky rocket equation for delta-V calculations
+//! - Force-based physics integration with F = ma
+//! - Realistic mass flow rates and fuel consumption
+//! - Apollo LM-based specifications for authenticity
+//!
+//! The physics system separates concerns between:
+//! - `RocketEngine`: Thrust generation and fuel management
+//! - `Physics`: Motion integration and force accumulation
+
 use macroquad::prelude::*;
 
 /// Rocket engine component with realistic propulsion parameters
@@ -13,7 +25,21 @@ pub struct RocketEngine {
 }
 
 impl RocketEngine {
-    /// Create a new rocket with Apollo Lunar Module specifications (enhanced for gameplay)
+    /// Creates a new rocket engine with Apollo Lunar Module specifications.
+    ///
+    /// # Specifications
+    ///
+    /// - **Dry mass**: 15,000 kg (unfueled spacecraft)
+    /// - **Fuel capacity**: 8,200 kg
+    /// - **Exhaust velocity**: 3,050 m/s
+    /// - **Maximum thrust**: 150,000 N (4x realistic for better gameplay)
+    /// - **Thrust-to-weight ratio**: 4.0+ (excellent controllability)
+    ///
+    /// These values are based on the Apollo Lunar Module but enhanced for gameplay.
+    ///
+    /// # Returns
+    ///
+    /// A new `RocketEngine` instance with Apollo LM specifications
     pub fn new_apollo_lm() -> Self {
         Self {
             dry_mass: 15000.0,        // Apollo LM dry mass (~15,000 kg)
@@ -26,39 +52,62 @@ impl RocketEngine {
         }
     }
 
-    /// Get total mass of the rocket
+    /// Returns the total mass of the spacecraft (dry mass + fuel).
+    ///
+    /// # Returns
+    ///
+    /// Total mass in kilograms
     pub fn total_mass(&self) -> f64 {
         self.dry_mass + self.fuel_mass
     }
 
-    /// Get fuel percentage remaining
+    /// Returns the current fuel level as a percentage.
+    ///
+    /// # Returns
+    ///
+    /// Fuel percentage from 0.0 to 100.0
     pub fn fuel_percentage(&self) -> f32 {
         (self.fuel_mass / self.max_fuel_mass * 100.0) as f32
     }
 
-    /// Check if rocket has fuel remaining
+    /// Checks if the rocket has fuel remaining.
+    ///
+    /// # Returns
+    ///
+    /// `true` if fuel_mass > 0, `false` otherwise
     pub fn has_fuel(&self) -> bool {
         self.fuel_mass > 0.0
     }
 
-    /// Reset fuel to maximum
+    /// Refuels the rocket to full capacity.
+    ///
+    /// Resets fuel_mass to max_fuel_mass for mission restart scenarios.
     pub fn refuel(&mut self) {
         self.fuel_mass = self.max_fuel_mass;
     }
 
-    /// Stop all thrust
+    /// Stops thrust generation and resets thrust vector to zero.
+    ///
+    /// This is a convenience method for input handling and emergency stops.
     pub fn stop_thrust(&mut self) {
         self.thrust_vector = Vec2::ZERO;
         self.is_thrusting = false;
     }
 
-    /// Generate thrust force with proper Tsiolkovsky equation implementation
+    /// Generates thrust force and consumes fuel based on current thrust settings.
     ///
-    /// This implementation properly handles:
-    /// - Variable mass flow based on actual thrust
-    /// - 2D thrust vectors
-    /// - Realistic fuel consumption
-    /// Returns the thrust force vector to be applied to physics
+    /// This function implements realistic rocket physics:
+    /// - Thrust force is applied in the direction of `thrust_vector`
+    /// - Fuel consumption follows: dm/dt = F / v_e
+    /// - Only consumes fuel when actively thrusting
+    ///
+    /// # Arguments
+    ///
+    /// * `dt` - Time step in seconds
+    ///
+    /// # Returns
+    ///
+    /// Thrust force vector in Newtons, or zero vector if no fuel/not thrusting
     pub fn generate_thrust(&mut self, dt: f32) -> Vec2 {
         if !self.is_thrusting || self.fuel_mass <= 0.0 {
             self.thrust_vector = Vec2::ZERO;
@@ -93,6 +142,15 @@ pub struct Physics {
 }
 
 impl Physics {
+    /// Creates a new physics component with the specified mass.
+    ///
+    /// # Arguments
+    ///
+    /// * `mass` - Initial mass in kilograms
+    ///
+    /// # Returns
+    ///
+    /// A new `Physics` instance with zero velocity and forces
     pub fn new(mass: f64) -> Self {
         Self {
             velocity: Vec2::ZERO,
@@ -101,17 +159,34 @@ impl Physics {
         }
     }
 
-    /// Reset forces to zero (call at start of each frame)
+    /// Clears accumulated forces for the next physics step.
+    ///
+    /// This should be called at the start of each frame to prevent
+    /// force accumulation across multiple frames.
     pub fn reset_forces(&mut self) {
         self.forces = Vec2::ZERO;
     }
 
-    /// Add a force to be applied this frame
+    /// Adds a force to the accumulated forces for this physics step.
+    ///
+    /// Forces are accumulated and then applied during `integrate`.
+    ///
+    /// # Arguments
+    ///
+    /// * `force` - Force vector in Newtons
     pub fn add_force(&mut self, force: Vec2) {
         self.forces += force;
     }
 
-    /// Integrate forces into motion using F = ma
+    /// Integrates motion using accumulated forces.
+    ///
+    /// This function performs numerical integration using:
+    /// - F = ma (force equals mass times acceleration)
+    /// - v = v₀ + at (velocity integration)
+    ///
+    /// # Arguments
+    ///
+    /// * `dt` - Time step in seconds
     pub fn integrate(&mut self, dt: f32) {
         if self.mass > 0.0 {
             let acceleration = self.forces / self.mass as f32;
@@ -121,8 +196,24 @@ impl Physics {
 }
 
 
-/// Calculate delta-V capability of rocket with current fuel
-/// This is useful for mission planning
+/// Calculates the remaining delta-V capability using the Tsiolkovsky rocket equation.
+///
+/// The rocket equation: Δv = v_e × ln(m_initial / m_final)
+/// where:
+/// - v_e = exhaust velocity
+/// - m_initial = current total mass
+/// - m_final = dry mass (after all fuel is burned)
+///
+/// This is useful for mission planning and determining if the lander has
+/// enough fuel to complete landing maneuvers.
+///
+/// # Arguments
+///
+/// * `rocket` - The rocket engine to calculate delta-V for
+///
+/// # Returns
+///
+/// Remaining delta-V in m/s, or 0.0 if no fuel remains
 pub fn calculate_delta_v(rocket: &RocketEngine) -> f64 {
     if rocket.fuel_mass <= 0.0 {
         return 0.0;

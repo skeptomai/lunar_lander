@@ -1,3 +1,12 @@
+//! Collision detection system for the lunar lander game.
+//!
+//! This module handles:
+//! - Landing zone detection with strict positioning requirements
+//! - Angle-based landing validation (15° max deviation from vertical)
+//! - Velocity-based landing success/failure determination
+//! - Distance measurements from landing zone edges
+//! - Legacy flat spot compatibility
+
 use macroquad::prelude::*;
 
 use crate::entity::Entity;
@@ -17,6 +26,31 @@ pub enum CollisionType {
     LandingSuccess,
 }
 
+/// Determines if the lander is positioned within any landing zone and calculates positioning accuracy.
+///
+/// This function performs strict positioning validation - the entire lander span must be
+/// within the landing zone boundaries (no partial overlaps allowed).
+///
+/// # Arguments
+///
+/// * `terrain_indices` - Array indices of terrain points the lander is touching
+/// * `landing_zones` - Available landing zones with their boundaries and difficulty levels
+/// * `_lander_width_terrain_points` - Lander width in terrain points (unused, kept for compatibility)
+///
+/// # Returns
+///
+/// * `Some((difficulty, left_distance, right_distance))` - Landing zone difficulty and distances from edges
+/// * `None` - Lander is not properly positioned within any landing zone
+///
+/// # Example
+///
+/// ```rust
+/// let terrain_indices = vec![110, 115, 120];
+/// let result = get_landing_zone_info(&terrain_indices, &zones, 20);
+/// if let Some((difficulty, left_dist, right_dist)) = result {
+///     println!("Landing on {} zone, {}L {}R", difficulty.name(), left_dist, right_dist);
+/// }
+/// ```
 pub fn get_landing_zone_info(terrain_indices: &[usize], landing_zones: &[LandingZone], _lander_width_terrain_points: usize) -> Option<(LandingZoneDifficulty, f32, f32)> {
     // Check if the lander is properly positioned within any landing zone
     // Returns (difficulty, distance_from_left_edge, distance_from_right_edge) if successful
@@ -43,13 +77,41 @@ pub fn get_landing_zone_info(terrain_indices: &[usize], landing_zones: &[Landing
     None
 }
 
-// Legacy function for backward compatibility
+/// Legacy function for backward compatibility.
+///
+/// Returns only the difficulty level of the landing zone, without distance measurements.
+/// Use `get_landing_zone_info` for detailed positioning information.
+///
+/// # Arguments
+///
+/// * `terrain_indices` - Array indices of terrain points the lander is touching
+/// * `landing_zones` - Available landing zones with their boundaries and difficulty levels
+/// * `lander_width_terrain_points` - Lander width in terrain points
+///
+/// # Returns
+///
+/// * `Some(difficulty)` - Landing zone difficulty if positioned correctly
+/// * `None` - Lander is not properly positioned within any landing zone
 pub fn is_on_landing_zone(terrain_indices: &[usize], landing_zones: &[LandingZone], lander_width_terrain_points: usize) -> Option<LandingZoneDifficulty> {
     get_landing_zone_info(terrain_indices, landing_zones, lander_width_terrain_points)
         .map(|(difficulty, _, _)| difficulty)
 }
 
-// Legacy function for backward compatibility
+/// Legacy function for backward compatibility with single flat spot detection.
+///
+/// Checks if the lander is positioned within a single flat spot range using strict
+/// positioning requirements (entire lander must be within boundaries).
+///
+/// # Arguments
+///
+/// * `terrain_indices` - Array indices of terrain points the lander is touching
+/// * `flat_spot_range` - Tuple of (start_index, end_index) for the flat spot
+/// * `_lander_width_terrain_points` - Lander width in terrain points (unused)
+///
+/// # Returns
+///
+/// * `true` - Lander is completely within the flat spot boundaries
+/// * `false` - Lander is partially or completely outside the flat spot
 pub fn is_on_flat_spot(terrain_indices: &[usize], flat_spot_range: (usize, usize), _lander_width_terrain_points: usize) -> bool {
     // Check if the entire lander is within the flat spot range
     // Updated to match new strict positioning requirements
@@ -67,6 +129,36 @@ pub fn is_on_flat_spot(terrain_indices: &[usize], flat_spot_range: (usize, usize
     min_idx >= flat_start && max_idx <= flat_end
 }
 
+/// Performs comprehensive collision detection and landing validation for the lander.
+///
+/// This function handles:
+/// - Terrain collision detection using leg and body zones
+/// - Landing zone positioning validation
+/// - Velocity and angle requirements for successful landing
+/// - Distance measurements for positioning feedback
+///
+/// # Collision Zones
+///
+/// - **Leg zones**: Bottom 25% of lander, left and right 30% of width
+/// - **Body zone**: Upper 75% of lander, or center 40% of width at bottom
+///
+/// # Landing Requirements
+///
+/// - Must land on a designated landing zone (not rough terrain)
+/// - Velocity must be ≤ 10.0 m/s
+/// - Angle must be ≤ 15° from vertical
+/// - Entire lander must be within landing zone boundaries
+///
+/// # Arguments
+///
+/// * `entity` - The lander entity containing position, physics, and terrain data
+///
+/// # Returns
+///
+/// * `CollisionType::LandingSuccess` - Successful landing meeting all requirements
+/// * `CollisionType::LegCollision` - Hard landing (failed velocity/angle requirements)
+/// * `CollisionType::BodyCollision` - Body collision (mission failure)
+/// * `CollisionType::None` - No collision detected
 pub fn check_collision(entity: &Entity) -> CollisionType {
     // CAMERA COORDINATE COLLISION DETECTION
     // Both lander and terrain are already in camera coordinates:

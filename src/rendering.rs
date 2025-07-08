@@ -1,3 +1,12 @@
+//! Rendering system for the lunar lander game.
+//!
+//! This module handles all visual aspects of the game including:
+//! - Lander sprite rendering with thrust-based texture selection
+//! - Procedural terrain rendering with color-coded landing zones
+//! - UI elements (fuel, velocity, mission timer, zone information)
+//! - Debug visualization (collision boxes, coordinate markers)
+//! - Camera system with proper coordinate transformations
+
 use macroquad::prelude::*;
 use macroquad_text::Fonts;
 
@@ -5,6 +14,17 @@ use crate::entity::Entity;
 use crate::physics::Physics;
 use crate::surface::LandingZoneDifficulty;
 
+/// Main rendering function that draws all game entities and UI elements.
+///
+/// This function orchestrates the complete rendering pipeline:
+/// - Entity rendering (lander, terrain, debug info)
+/// - UI rendering (HUD, alerts, debug overlays)
+/// - Camera management for proper coordinate transformations
+///
+/// # Arguments
+///
+/// * `entities` - Vector of all game entities to render
+/// * `camera` - Camera configuration for coordinate transformations
 pub fn render(entities: &Vec<Entity>, camera: &Camera2D) {
     for entity in entities {
         if let Some(phys) = &entity.physics {
@@ -28,6 +48,18 @@ pub fn render(entities: &Vec<Entity>, camera: &Camera2D) {
     }
 }
 
+/// Renders debug information and collision visualization.
+///
+/// When debug mode is enabled, this function displays:
+/// - Physics data (position, velocity, forces)
+/// - Rocket engine status (fuel, mass, thrust)
+/// - Collision bounding boxes and detection zones
+///
+/// # Arguments
+///
+/// * `entity` - The entity to render debug info for
+/// * `phys` - Physics component containing motion data
+/// * `camera` - Camera for coordinate transformations
 pub fn render_debug_info(entity: &Entity, phys: &Physics, camera: &Camera2D) {
     if entity.show_debug_info {
         debug!("position: {:?}", entity.transform.position);
@@ -44,6 +76,17 @@ pub fn render_debug_info(entity: &Entity, phys: &Physics, camera: &Camera2D) {
     }
 }
 
+/// Renders the lunar lander with appropriate texture based on thrust status.
+///
+/// The lander texture selection depends on current thrust levels:
+/// - Normal texture: No thrust or out of fuel
+/// - Acceleration texture: Low to medium thrust
+/// - High acceleration texture: High thrust (>70% of maximum)
+///
+/// # Arguments
+///
+/// * `entity` - The lander entity to render
+/// * `camera` - Camera for coordinate transformations
 pub fn render_lander(entity: &Entity, camera: &Camera2D) {
     if let Some(phys) = &entity.physics {
         // Choose lander texture based on thrust status
@@ -91,6 +134,18 @@ pub fn render_lander(entity: &Entity, camera: &Camera2D) {
     }
 }
 
+/// Renders the procedurally generated terrain with color-coded landing zones.
+///
+/// Terrain is rendered as connected line segments with different colors:
+/// - Green: Normal rough terrain
+/// - Red: Hard landing zones (1.0x lander width)
+/// - Orange: Medium landing zones (1.25x lander width)
+/// - Yellow: Easy landing zones (1.5x lander width)
+///
+/// # Arguments
+///
+/// * `entity` - Entity containing terrain data and landing zones
+/// * `_camera` - Camera (unused, terrain uses screen coordinates)
 pub fn render_terrain(entity: &Entity, _camera: &Camera2D) {
     // Draw terrain with 1:1 pixel correspondence - much simpler coordinate system
     for i in 0..entity.terrain.len() - 1 {
@@ -124,6 +179,18 @@ pub fn render_terrain(entity: &Entity, _camera: &Camera2D) {
     }
 }
 
+/// Draws the main game UI including mission status, fuel, velocity, and landing zone info.
+///
+/// The UI displays:
+/// - Mission timer and status
+/// - Fuel percentage and spacecraft mass
+/// - Velocity components and total speed
+/// - Landing zone count and difficulty breakdown
+/// - Thrust status indicator
+///
+/// # Arguments
+///
+/// * `entity` - Entity containing all game state and UI data
 pub fn draw_text(entity: &Entity) {
     set_default_camera();
     let fonts = &entity.screen_fonts;
@@ -244,6 +311,16 @@ pub fn draw_text(entity: &Entity) {
     }
 }
 
+/// Draws mission result alert box for success or failure scenarios.
+///
+/// The alert box appears when the mission ends, showing:
+/// - Success: "Mission Success!" with green text
+/// - Failure: "Mission Failed!" with red text
+/// - Restart instructions
+///
+/// # Arguments
+///
+/// * `entity` - Entity containing mission status
 pub fn draw_alert_box(entity: &Entity) {
     let fonts = &entity.screen_fonts;
 
@@ -274,6 +351,18 @@ pub fn draw_alert_box(entity: &Entity) {
     );
 }
 
+/// Draws detailed collision detection visualization for debugging.
+///
+/// This function renders:
+/// - Lander bounding box with corner markers
+/// - Leg collision zones (bottom 25%, left/right 30%)
+/// - Body collision zone (center 40%)
+/// - Critical collision edges and margins
+///
+/// # Arguments
+///
+/// * `entity` - Entity to visualize collision detection for
+/// * `camera` - Camera for coordinate transformations
 pub fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     // Draw in camera coordinates (same as where the lander is actually rendered)
     set_camera(camera);
@@ -364,6 +453,16 @@ pub fn draw_collision_bounding_box(entity: &Entity, camera: &Camera2D) -> () {
     set_default_camera()
 }
 
+/// Renders debug overlay markers for screen coordinate validation.
+///
+/// This function draws reference markers:
+/// - Screen center crosshair
+/// - Edge markers at maximum terrain height
+/// - Coordinate system validation points
+///
+/// # Arguments
+///
+/// * `entity` - Entity containing terrain data for marker positioning
 pub fn debug_render(entity: &Entity) {
     // Debug: Draw center reticle to show screen center
     let screen_center_x = screen_width() / 2.0;
@@ -420,6 +519,16 @@ pub fn debug_render(entity: &Entity) {
     );
 }
 
+/// Configures the 2D camera with proper coordinate system transformations.
+///
+/// The camera setup:
+/// - Inverts Y-axis for standard mathematical coordinates
+/// - Centers on screen with appropriate zoom levels
+/// - Handles coordinate transformations between screen and world space
+///
+/// # Returns
+///
+/// Configured `Camera2D` instance ready for rendering
 pub fn configure_camera() -> Camera2D {
     let screen_width = screen_width();
     let screen_height = screen_height();
@@ -432,6 +541,20 @@ pub fn configure_camera() -> Camera2D {
     }
 }
 
+/// Loads all lander texture assets asynchronously.
+///
+/// This function loads the three lander textures:
+/// - Normal lander (no thrust)
+/// - Acceleration lander (low-medium thrust)
+/// - High acceleration lander (high thrust)
+///
+/// # Returns
+///
+/// A tuple containing `(normal_texture, accel_texture, high_accel_texture)`
+///
+/// # Panics
+///
+/// Panics if any texture file cannot be loaded from the assets directory
 pub async fn load_lander_textures() -> (Texture2D, Texture2D, Texture2D) {
     let lander_texture = load_texture("assets/images/lander.png")
         .await

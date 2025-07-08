@@ -1,3 +1,10 @@
+//! Procedural terrain generation with multiple landing zones.
+//!
+//! This module generates realistic lunar terrain using Perlin noise with integrated
+//! flat landing zones of varying difficulty levels. The terrain generation ensures
+//! proper spacing between zones and provides both legacy single-zone compatibility
+//! and modern multi-zone functionality.
+
 extern crate noise;
 
 use macroquad::logging::debug;
@@ -12,6 +19,13 @@ pub enum LandingZoneDifficulty {
 }
 
 impl LandingZoneDifficulty {
+    /// Returns the width multiplier for this difficulty level.
+    ///
+    /// # Returns
+    ///
+    /// * `1.0` - Hard difficulty (exact lander width)
+    /// * `1.25` - Medium difficulty (1.25x lander width)
+    /// * `1.5` - Easy difficulty (1.5x lander width)
     pub fn width_multiplier(&self) -> f32 {
         match self {
             LandingZoneDifficulty::Hard => 1.0,
@@ -20,6 +34,13 @@ impl LandingZoneDifficulty {
         }
     }
     
+    /// Returns the human-readable name of this difficulty level.
+    ///
+    /// # Returns
+    ///
+    /// * `"Hard"` - Most challenging landing zones
+    /// * `"Medium"` - Moderate difficulty landing zones
+    /// * `"Easy"` - Most forgiving landing zones
     pub fn name(&self) -> &str {
         match self {
             LandingZoneDifficulty::Hard => "Hard",
@@ -37,6 +58,43 @@ pub struct LandingZone {
     pub width_points: usize,
 }
 
+/// Generates procedural terrain with 1-3 randomly placed landing zones of varying difficulty.
+///
+/// This function creates realistic lunar terrain using multi-octave Perlin noise while
+/// integrating flat landing zones. The zones are strategically placed to avoid overlaps
+/// and provide a good gameplay experience.
+///
+/// # Arguments
+///
+/// * `num_points` - Number of terrain points to generate
+/// * `min_height` - Minimum terrain height
+/// * `max_height` - Maximum terrain height
+/// * `base_frequency` - Base frequency for Perlin noise
+/// * `octaves` - Number of noise octaves for terrain detail
+/// * `persistence` - Persistence factor for noise octaves
+/// * `lander_width_points` - Width of the lander in terrain points
+///
+/// # Returns
+///
+/// A tuple containing:
+/// * `Vec<f64>` - Generated terrain heights
+/// * `Vec<LandingZone>` - Landing zones with positions and difficulty levels
+///
+/// # Zone Generation
+///
+/// - Generates 1-3 landing zones randomly
+/// - Each zone has a random difficulty (Hard/Medium/Easy)
+/// - Zones are spaced at least 150 points apart
+/// - Fallback to single zone if spacing constraints can't be met
+///
+/// # Example
+///
+/// ```rust
+/// let (terrain, zones) = generate_terrain_with_multiple_landing_zones(
+///     1000, 0.0, 100.0, 0.01, 6, 0.5, 36
+/// );
+/// println!("Generated {} zones", zones.len());
+/// ```
 pub fn generate_terrain_with_multiple_landing_zones(
     num_points: usize,
     min_height: f64,
@@ -197,7 +255,27 @@ pub fn generate_terrain_with_multiple_landing_zones(
     (terrain, landing_zones)
 }
 
-// Legacy function for backward compatibility
+/// Legacy function for backward compatibility with single flat spot generation.
+///
+/// This function wraps the modern multi-zone generation and returns only the first
+/// landing zone in the legacy format. Use `generate_terrain_with_multiple_landing_zones`
+/// for full multi-zone functionality.
+///
+/// # Arguments
+///
+/// * `num_points` - Number of terrain points to generate
+/// * `min_height` - Minimum terrain height
+/// * `max_height` - Maximum terrain height
+/// * `base_frequency` - Base frequency for Perlin noise
+/// * `octaves` - Number of noise octaves for terrain detail
+/// * `persistence` - Persistence factor for noise octaves
+/// * `lander_width_points` - Width of the lander in terrain points
+///
+/// # Returns
+///
+/// A tuple containing:
+/// * `Vec<f64>` - Generated terrain heights
+/// * `(usize, usize)` - Flat spot range (start_index, end_index)
 pub fn generate_terrain_with_flat_spot(
     num_points: usize,
     min_height: f64,
