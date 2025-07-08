@@ -1,9 +1,8 @@
 use macroquad::prelude::*;
 use macroquad_text::Fonts;
 
-use crate::assets::load_fonts;
+use crate::assets::{load_fonts,load_lander_textures};
 use crate::physics::{Physics, RocketEngine};
-use crate::rendering::load_lander_textures;
 use crate::surface::{self, LandingZone};
 use crate::utils::transform_axes;
 
