@@ -67,11 +67,6 @@ impl Physics {
         }
     }
 
-    /// Reset physics state
-    pub fn reset(&mut self) {
-        self.velocity = Vec2::ZERO;
-        self.acceleration = Vec2::ZERO;
-    }
 }
 
 /// Advanced rocket physics using proper Tsiolkovsky equation implementation
@@ -121,13 +116,6 @@ pub fn calculate_delta_v(rocket: &RocketPhysics) -> f64 {
     rocket.exhaust_velocity * (initial_mass / final_mass).ln()
 }
 
-/// Calculate theoretical maximum delta-V with full fuel
-pub fn calculate_max_delta_v(rocket: &RocketPhysics) -> f64 {
-    let initial_mass = rocket.dry_mass + rocket.max_fuel_mass;
-    let final_mass = rocket.dry_mass;
-
-    rocket.exhaust_velocity * (initial_mass / final_mass).ln()
-}
 
 #[cfg(test)]
 mod tests {
