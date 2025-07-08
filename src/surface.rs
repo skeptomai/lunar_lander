@@ -48,6 +48,20 @@ impl LandingZoneDifficulty {
             LandingZoneDifficulty::Easy => "Easy",
         }
     }
+
+    /// Calculates the score for successfully landing in this zone.
+    ///
+    /// Score formula: 2 / width_multiplier
+    /// - Hard zone (1.0x): 2/1.0 = 2.0 points
+    /// - Medium zone (1.25x): 2/1.25 = 1.6 points
+    /// - Easy zone (1.5x): 2/1.5 = 1.3 points
+    ///
+    /// # Returns
+    ///
+    /// The score value for landing in this zone
+    pub fn score(&self) -> f32 {
+        2.0 / self.width_multiplier()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -304,4 +318,26 @@ pub fn generate_terrain_with_flat_spot(
     };
     
     (terrain, flat_spot_range)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scoring_system() {
+        // Test scoring formula: 2 / width_multiplier
+
+        // Hard zone (1.0x width): 2/1.0 = 2.0
+        let hard = LandingZoneDifficulty::Hard;
+        assert_eq!(hard.score(), 2.0);
+
+        // Medium zone (1.25x width): 2/1.25 = 1.6
+        let medium = LandingZoneDifficulty::Medium;
+        assert_eq!(medium.score(), 1.6);
+
+        // Easy zone (1.5x width): 2/1.5 = 1.333...
+        let easy = LandingZoneDifficulty::Easy;
+        assert!((easy.score() - 1.333333).abs() < 0.001); // Float comparison with tolerance
+    }
 }

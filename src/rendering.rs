@@ -158,13 +158,15 @@ pub fn render_lander(entity: &Entity, camera: &Camera2D) {
     }
 }
 
-/// Renders the procedurally generated terrain with color-coded landing zones.
+/// Renders the procedurally generated terrain with color-coded landing zones and scores.
 ///
 /// Terrain is rendered as connected line segments with different colors:
 /// - Green: Normal rough terrain
-/// - Red: Hard landing zones (1.0x lander width)
-/// - Orange: Medium landing zones (1.25x lander width)
-/// - Yellow: Easy landing zones (1.5x lander width)
+/// - Red: Hard landing zones (1.0x lander width) - Score: 2.0
+/// - Orange: Medium landing zones (1.25x lander width) - Score: 1.6
+/// - Yellow: Easy landing zones (1.5x lander width) - Score: 1.3
+///
+/// Scores are displayed above each landing zone.
 ///
 /// # Arguments
 ///
@@ -200,6 +202,46 @@ pub fn render_terrain(entity: &Entity, _camera: &Camera2D) {
         };
 
         draw_line(start_x, start_y, end_x, end_y, line_width, line_color);
+    }
+
+    // Render scores above landing zones using the same coordinate system as terrain
+    // (Don't change camera - keep using the same coordinates as terrain rendering)
+
+    for zone in &entity.landing_zones {
+        // Calculate the center position of the zone
+        let zone_center_x = (zone.start + zone.end) as f32 / 2.0;
+
+        // Find the terrain height at the center of the zone
+        let center_index = (zone_center_x as usize).min(entity.terrain.len() - 1);
+        let terrain_height = entity.terrain[center_index] as f32;
+
+        // Position score text above the zone (offset upward from terrain)
+        let score_y = terrain_height - 25.0; // 25 pixels above terrain
+
+        // Calculate and format the score
+        let score = zone.difficulty.score();
+        let score_text = format!("{:.1}", score);
+
+        // Choose color to match zone difficulty
+        let text_color = match zone.difficulty {
+            LandingZoneDifficulty::Hard => RED,
+            LandingZoneDifficulty::Medium => ORANGE,
+            LandingZoneDifficulty::Easy => YELLOW,
+        };
+
+        // Draw score text centered above the zone
+        let text_size = 18.0;
+        let text_width = measure_text(&score_text, None, text_size as u16, 1.0).width;
+        let text_x = zone_center_x - text_width / 2.0;
+
+        // Convert to screen coordinates for proper text rendering
+        // Score_y is in terrain coordinates (Y increases downward)
+        // Convert to screen coordinates where Y=0 is at the top
+        let screen_y = screen_height() - score_y;
+
+        // Use default camera for text rendering to avoid coordinate system issues
+        set_default_camera();
+        macroquad::text::draw_text(&score_text, text_x, screen_y, text_size, text_color);
     }
 }
 
