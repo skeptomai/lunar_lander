@@ -3,6 +3,7 @@ use macroquad_text::Fonts;
 
 use crate::entity::Entity;
 use crate::physics::Physics;
+use crate::surface::LandingZoneDifficulty;
 
 pub fn render(entities: &Vec<Entity>, camera: &Camera2D) {
     for entity in entities {
@@ -98,21 +99,25 @@ pub fn render_terrain(entity: &Entity, _camera: &Camera2D) {
         let end_x = (i + 1) as f32;
         let end_y = entity.terrain[i + 1] as f32;
 
-        // Check if BOTH endpoints of this segment are within the flat spot range
-        let flat_spot_range = entity.flat_spots[0]; // We have exactly one flat spot
-        let is_flat_segment = i >= flat_spot_range.0 && (i + 1) <= flat_spot_range.1;
+        // Check if BOTH endpoints of this segment are within any landing zone
+        let mut in_landing_zone = None;
+        for zone in &entity.landing_zones {
+            if i >= zone.start && (i + 1) <= zone.end {
+                in_landing_zone = Some(zone.difficulty);
+                break;
+            }
+        }
 
-        // Determine color and width based on whether this is a flat landing zone
-        let line_color = if is_flat_segment {
-            YELLOW // Landing zones should be yellow
+        // Determine color and width based on landing zone difficulty
+        let (line_color, line_width) = if let Some(difficulty) = in_landing_zone {
+            let color = match difficulty {
+                LandingZoneDifficulty::Hard => RED,    // Hardest zones are red (1.0x width)
+                LandingZoneDifficulty::Medium => ORANGE, // Medium zones are orange (1.25x width)
+                LandingZoneDifficulty::Easy => YELLOW,   // Easiest zones are yellow (1.5x width)
+            };
+            (color, 4.0) // Thicker lines for all landing zones
         } else {
-            GREEN // Regular terrain should be green
-        };
-
-        let line_width = if is_flat_segment {
-            4.0 // Thicker lines for landing zones
-        } else {
-            2.0 // Regular width for normal terrain
+            (GREEN, 2.0) // Regular terrain in green with normal width
         };
 
         draw_line(start_x, start_y, end_x, end_y, line_width, line_color);
@@ -140,6 +145,40 @@ pub fn draw_text(entity: &Entity) {
     if let Some(rocket) = &entity.rocket_physics {
         let mass_text = format!("MASS: {:.0}kg", rocket.total_mass());
         fonts.draw_text(&mass_text, 20.0, 60.0, 15.0, Color::from([1.0; 4]));
+    }
+    
+    // Display landing zones information
+    if !entity.landing_zones.is_empty() {
+        let zones_text = format!("ZONES: {}", entity.landing_zones.len());
+        fonts.draw_text(&zones_text, 20.0, 80.0, 15.0, Color::from([1.0; 4]));
+        
+        // Show difficulty breakdown
+        let mut hard_count = 0;
+        let mut medium_count = 0;
+        let mut easy_count = 0;
+        for zone in &entity.landing_zones {
+            match zone.difficulty {
+                LandingZoneDifficulty::Hard => hard_count += 1,
+                LandingZoneDifficulty::Medium => medium_count += 1,
+                LandingZoneDifficulty::Easy => easy_count += 1,
+            }
+        }
+        
+        let mut y_offset = 100.0;
+        if hard_count > 0 {
+            let hard_text = format!("RED: {} hard", hard_count);
+            fonts.draw_text(&hard_text, 20.0, y_offset, 12.0, RED);
+            y_offset += 15.0;
+        }
+        if medium_count > 0 {
+            let medium_text = format!("ORANGE: {} med", medium_count);
+            fonts.draw_text(&medium_text, 20.0, y_offset, 12.0, ORANGE);
+            y_offset += 15.0;
+        }
+        if easy_count > 0 {
+            let easy_text = format!("YELLOW: {} easy", easy_count);
+            fonts.draw_text(&easy_text, 20.0, y_offset, 12.0, YELLOW);
+        }
     }
 
     let w = macroquad::window::screen_width();

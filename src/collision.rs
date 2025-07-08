@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 
 use crate::entity::Entity;
+use crate::surface::{LandingZone, LandingZoneDifficulty};
 
 const COLLISION_MARGIN: f32 = 3.0;
 const LEG_HEIGHT_RATIO: f32 = 0.25; // Bottom 25% is legs
@@ -16,29 +17,54 @@ pub enum CollisionType {
     LandingSuccess,
 }
 
-pub fn is_on_flat_spot(terrain_indices: &[usize], flat_spot_range: (usize, usize), lander_width_terrain_points: usize) -> bool {
-    // Check if any of the collision terrain indices are within the known flat spot range
-    // Use 1.3x lander width tolerance as requested
+pub fn get_landing_zone_info(terrain_indices: &[usize], landing_zones: &[LandingZone], _lander_width_terrain_points: usize) -> Option<(LandingZoneDifficulty, f32, f32)> {
+    // Check if the lander is properly positioned within any landing zone
+    // Returns (difficulty, distance_from_left_edge, distance_from_right_edge) if successful
+    if terrain_indices.is_empty() {
+        return None;
+    }
+    
+    // Find the span of terrain indices the lander is touching
+    let min_idx = *terrain_indices.iter().min().unwrap();
+    let max_idx = *terrain_indices.iter().max().unwrap();
+    
+    for zone in landing_zones {
+        // For a successful landing, the entire lander span must be within the zone
+        // No tolerance - require exact positioning within the zone boundaries
+        if min_idx >= zone.start && max_idx <= zone.end {
+            // Calculate distances from zone edges (in terrain points)
+            let distance_from_left = (min_idx - zone.start) as f32;
+            let distance_from_right = (zone.end - max_idx) as f32;
+            
+            return Some((zone.difficulty, distance_from_left, distance_from_right));
+        }
+    }
+    
+    None
+}
+
+// Legacy function for backward compatibility
+pub fn is_on_landing_zone(terrain_indices: &[usize], landing_zones: &[LandingZone], lander_width_terrain_points: usize) -> Option<LandingZoneDifficulty> {
+    get_landing_zone_info(terrain_indices, landing_zones, lander_width_terrain_points)
+        .map(|(difficulty, _, _)| difficulty)
+}
+
+// Legacy function for backward compatibility
+pub fn is_on_flat_spot(terrain_indices: &[usize], flat_spot_range: (usize, usize), _lander_width_terrain_points: usize) -> bool {
+    // Check if the entire lander is within the flat spot range
+    // Updated to match new strict positioning requirements
     if terrain_indices.is_empty() {
         return false;
     }
 
     let (flat_start, flat_end) = flat_spot_range;
     
-    // Calculate tolerance: 1.3x lander width means 0.3x extra width total
-    // Split evenly on both sides: 0.15x lander width on each side
-    let tolerance_points = ((lander_width_terrain_points as f32 * 0.15) as usize).max(1);
+    // Find the span of terrain indices the lander is touching
+    let min_idx = *terrain_indices.iter().min().unwrap();
+    let max_idx = *terrain_indices.iter().max().unwrap();
     
-    let tolerance_start = flat_start.saturating_sub(tolerance_points);
-    let tolerance_end = flat_end + tolerance_points;
-    
-    for &idx in terrain_indices {
-        if idx >= tolerance_start && idx <= tolerance_end {
-            return true; // At least part of the lander is on or near the flat spot
-        }
-    }
-
-    false
+    // Require entire lander to be within the flat spot
+    min_idx >= flat_start && max_idx <= flat_end
 }
 
 pub fn check_collision(entity: &Entity) -> CollisionType {
@@ -130,26 +156,25 @@ pub fn check_collision(entity: &Entity) -> CollisionType {
         }
     }
 
-    // Determine collision type based on flat terrain, velocity, and collision zones
-    // CRITICAL: Only flat spots are safe landing zones!
+    // Determine collision type based on landing zones, velocity, and collision zones
+    // CRITICAL: Only landing zones are safe landing spots!
     if leg_collision {
-        // Check if landing on a flat spot (mandatory for success)
-        // We know exactly where the flat spot is now, so check against the known range
-        let flat_spot_range = entity.flat_spots[0]; // We have exactly one flat spot
-        
-        // Calculate lander width in terrain points for tolerance
+        // Check if landing on any landing zone (mandatory for success)
         let screen_width = macroquad::window::screen_width();
         let terrain_points_per_pixel = 1000.0 / (screen_width * 2.0);
         let lander_width_terrain_points = (entity.transform.size.x * terrain_points_per_pixel) as usize;
         
-        let on_flat_spot = is_on_flat_spot(&collision_terrain_indices, flat_spot_range, lander_width_terrain_points);
+        let landing_zone_info = get_landing_zone_info(&collision_terrain_indices, &entity.landing_zones, lander_width_terrain_points);
 
-        if !on_flat_spot {
-            info!("ROUGH TERRAIN LANDING: Not on flat spot - Mission Failed!");
+        if let Some((difficulty, dist_left, dist_right)) = landing_zone_info {
+            info!("LANDING ON {} ZONE: {} difficulty, distances: {:.1} from left edge, {:.1} from right edge", 
+                  difficulty.name().to_uppercase(), difficulty.name(), dist_left, dist_right);
+        } else {
+            info!("ROUGH TERRAIN LANDING: Not on any landing zone - Mission Failed!");
             return CollisionType::LegCollision;
         }
 
-        // On flat spot - now check velocity and angle for success vs crash
+        // On landing zone - now check velocity and angle for success vs crash
         if let Some(physics) = &entity.physics {
             let landing_velocity = physics.velocity.length();
             
@@ -172,26 +197,39 @@ pub fn check_collision(entity: &Entity) -> CollisionType {
             let angle_ok = angle_deviation <= MAX_LANDING_ANGLE_DEGREES;
             
             if velocity_ok && angle_ok {
-                info!(
-                    "SUCCESSFUL LANDING: velocity={:.1}, angle={:.1}° from vertical on flat spot",
-                    landing_velocity, angle_deviation
-                );
-                CollisionType::LandingSuccess
-            } else {
-                if !velocity_ok && !angle_ok {
+                if let Some((difficulty, dist_left, dist_right)) = landing_zone_info {
                     info!(
-                        "HARD LANDING: velocity={:.1} > {:.1} AND angle={:.1}° > {:.1}° on flat spot",
-                        landing_velocity, MAX_LANDING_VELOCITY, angle_deviation, MAX_LANDING_ANGLE_DEGREES
-                    );
-                } else if !velocity_ok {
-                    info!(
-                        "HARD LANDING: velocity={:.1} > {:.1} on flat spot (angle ok: {:.1}°)",
-                        landing_velocity, MAX_LANDING_VELOCITY, angle_deviation
+                        "SUCCESSFUL LANDING: velocity={:.1}, angle={:.1}° from vertical on {} zone (edges: {:.1}L, {:.1}R)",
+                        landing_velocity, angle_deviation, difficulty.name().to_lowercase(), dist_left, dist_right
                     );
                 } else {
                     info!(
-                        "TILTED LANDING: angle={:.1}° > {:.1}° on flat spot (velocity ok: {:.1})",
-                        angle_deviation, MAX_LANDING_ANGLE_DEGREES, landing_velocity
+                        "SUCCESSFUL LANDING: velocity={:.1}, angle={:.1}° from vertical",
+                        landing_velocity, angle_deviation
+                    );
+                }
+                CollisionType::LandingSuccess
+            } else {
+                let (zone_name, edge_info) = if let Some((difficulty, dist_left, dist_right)) = landing_zone_info {
+                    (difficulty.name().to_lowercase(), format!(" (edges: {:.1}L, {:.1}R)", dist_left, dist_right))
+                } else {
+                    ("landing".to_string(), String::new())
+                };
+                
+                if !velocity_ok && !angle_ok {
+                    info!(
+                        "HARD LANDING: velocity={:.1} > {:.1} AND angle={:.1}° > {:.1}° on {} zone{}",
+                        landing_velocity, MAX_LANDING_VELOCITY, angle_deviation, MAX_LANDING_ANGLE_DEGREES, zone_name, edge_info
+                    );
+                } else if !velocity_ok {
+                    info!(
+                        "HARD LANDING: velocity={:.1} > {:.1} on {} zone (angle ok: {:.1}°){}",
+                        landing_velocity, MAX_LANDING_VELOCITY, zone_name, angle_deviation, edge_info
+                    );
+                } else {
+                    info!(
+                        "TILTED LANDING: angle={:.1}° > {:.1}° on {} zone (velocity ok: {:.1}){}",
+                        angle_deviation, MAX_LANDING_ANGLE_DEGREES, zone_name, landing_velocity, edge_info
                     );
                 }
                 CollisionType::LegCollision
@@ -222,9 +260,13 @@ mod tests {
         let terrain_indices = vec![110, 115, 120];
         assert!(is_on_flat_spot(&terrain_indices, flat_spot_range, lander_width_terrain_points));
         
-        // Test lander partially on flat spot (within tolerance)
-        let terrain_indices = vec![98, 102]; // Just outside but within tolerance
-        assert!(is_on_flat_spot(&terrain_indices, flat_spot_range, lander_width_terrain_points));
+        // Test lander partially on flat spot (should now FAIL with strict requirements)
+        let terrain_indices = vec![98, 102]; // Partially outside zone (98 < 100)
+        assert!(!is_on_flat_spot(&terrain_indices, flat_spot_range, lander_width_terrain_points), "Partial overlap should fail");
+        
+        // Test lander exactly on flat spot boundaries (should succeed)
+        let terrain_indices = vec![100, 105, 130]; // Exactly within zone boundaries
+        assert!(is_on_flat_spot(&terrain_indices, flat_spot_range, lander_width_terrain_points), "Exact boundaries should succeed");
         
         // Test lander completely off flat spot
         let terrain_indices = vec![50, 55, 60];
@@ -317,5 +359,69 @@ mod tests {
         assert!(angle_deviation <= MAX_LANDING_ANGLE_DEGREES, 
                 "Lander at exact limit ({}°) should be within angle limit, deviation: {}°", 
                 rotation, angle_deviation);
+    }
+    
+    #[test]
+    fn test_multiple_landing_zones() {
+        use crate::surface::{LandingZone, LandingZoneDifficulty};
+        
+        // Create test landing zones with different difficulties
+        let landing_zones = vec![
+            LandingZone {
+                start: 100,
+                end: 120,
+                difficulty: LandingZoneDifficulty::Hard,
+                width_points: 20,
+            },
+            LandingZone {
+                start: 200,
+                end: 225,
+                difficulty: LandingZoneDifficulty::Medium,
+                width_points: 25,
+            },
+            LandingZone {
+                start: 300,
+                end: 330,
+                difficulty: LandingZoneDifficulty::Easy,
+                width_points: 30,
+            },
+        ];
+        
+        let lander_width_terrain_points = 20;
+        
+        // Test landing on hard zone
+        let terrain_indices = vec![110, 115]; // Within hard zone (100-120)
+        let result = get_landing_zone_info(&terrain_indices, &landing_zones, lander_width_terrain_points);
+        assert_eq!(result, Some((LandingZoneDifficulty::Hard, 10.0, 5.0))); // 10 from left (110-100), 5 from right (120-115)
+        
+        // Test landing on medium zone
+        let terrain_indices = vec![210, 215]; // Within medium zone (200-225)
+        let result = get_landing_zone_info(&terrain_indices, &landing_zones, lander_width_terrain_points);
+        assert_eq!(result, Some((LandingZoneDifficulty::Medium, 10.0, 10.0))); // 10 from left (210-200), 10 from right (225-215)
+        
+        // Test landing on easy zone
+        let terrain_indices = vec![315, 320]; // Within easy zone (300-330)
+        let result = get_landing_zone_info(&terrain_indices, &landing_zones, lander_width_terrain_points);
+        assert_eq!(result, Some((LandingZoneDifficulty::Easy, 15.0, 10.0))); // 15 from left (315-300), 10 from right (330-320)
+        
+        // Test landing on rough terrain (not in any zone)
+        let terrain_indices = vec![50, 55]; // Outside all zones
+        let result = get_landing_zone_info(&terrain_indices, &landing_zones, lander_width_terrain_points);
+        assert_eq!(result, None);
+        
+        // Test strict positioning - landing partially outside zone should fail
+        let terrain_indices = vec![97, 102]; // Spans outside zone start (97 < 100) - should fail
+        let result = get_landing_zone_info(&terrain_indices, &landing_zones, lander_width_terrain_points);
+        assert_eq!(result, None, "Should NOT detect landing when partially outside zone");
+        
+        // Test edge case - landing exactly at zone boundaries should succeed
+        let terrain_indices = vec![100, 120]; // Exactly at zone boundaries (100-120)
+        let result = get_landing_zone_info(&terrain_indices, &landing_zones, lander_width_terrain_points);
+        assert_eq!(result, Some((LandingZoneDifficulty::Hard, 0.0, 0.0)), "Should detect landing exactly at zone boundaries with zero tolerance");
+        
+        // Test legacy function still works
+        let terrain_indices = vec![110, 115];
+        let legacy_result = is_on_landing_zone(&terrain_indices, &landing_zones, lander_width_terrain_points);
+        assert_eq!(legacy_result, Some(LandingZoneDifficulty::Hard));
     }
 }

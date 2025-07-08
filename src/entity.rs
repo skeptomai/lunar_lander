@@ -4,7 +4,7 @@ use macroquad_text::Fonts;
 use crate::assets::load_fonts;
 use crate::physics::{Physics, RocketEngine};
 use crate::rendering::load_lander_textures;
-use crate::surface;
+use crate::surface::{self, LandingZone};
 use crate::utils::transform_axes;
 
 const TERRAIN_Y_OFFSET: f64 = 75.0;
@@ -40,7 +40,8 @@ pub struct Collision {
 pub struct Entity<'a> {
     pub transform: Transform,
     pub terrain: Vec<f64>,
-    pub flat_spots: Vec<(usize, usize)>, // Store flat spot ranges for direct reference
+    pub flat_spots: Vec<(usize, usize)>, // Legacy flat spot ranges for backward compatibility
+    pub landing_zones: Vec<LandingZone>, // New multiple landing zones with difficulty
     pub screen_fonts: Fonts<'a>,
     pub physics: Option<Physics>,
     pub rocket_physics: Option<RocketEngine>,
@@ -67,6 +68,7 @@ impl<'a> Entity<'a> {
             },
             terrain: Vec::new(),
             flat_spots: Vec::new(),
+            landing_zones: Vec::new(),
             screen_fonts: load_fonts(),
             physics: Some(Physics::new(23200.0)), // Apollo LM total mass
             rocket_physics: Some(RocketEngine::new_apollo_lm()),
@@ -109,15 +111,15 @@ impl<'a> Entity<'a> {
             landing_spot_terrain_points
         );
 
-        // Generate terrain with integrated flat landing spot
-        let (mut terrain, flat_spot_range) = surface::generate_terrain_with_flat_spot(
+        // Generate terrain with multiple landing zones
+        let (mut terrain, landing_zones) = surface::generate_terrain_with_multiple_landing_zones(
             num_points,
             min_height,
             max_height,
             base_frequency,
             octaves,
             persistence,
-            landing_spot_terrain_points,
+            lander_width_terrain_points,
         );
 
         // Apply scaling transformation
@@ -126,7 +128,10 @@ impl<'a> Entity<'a> {
         });
 
         self.terrain = terrain;
-        self.flat_spots = vec![flat_spot_range];
+        self.landing_zones = landing_zones.clone();
+        
+        // Update legacy flat_spots for backward compatibility
+        self.flat_spots = landing_zones.iter().map(|zone| (zone.start, zone.end)).collect();
 
         // Set lander size and position
         self.transform.size = lander_texture_size;
@@ -203,10 +208,11 @@ pub async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
         lander_texture: lander_high_accel_texture,
     });
 
-    debug!(
-        "Generated single flat landing spot at positions {}-{} ({} points)",
-        lander.flat_spots[0].0, lander.flat_spots[0].1, landing_spot_terrain_points
-    );
+    debug!("Generated {} landing zones:", lander.landing_zones.len());
+    for (i, zone) in lander.landing_zones.iter().enumerate() {
+        debug!("  Zone {}: {} difficulty, positions {}-{} ({} points)", 
+               i + 1, zone.difficulty.name(), zone.start, zone.end, zone.width_points);
+    }
     debug!("Final terrain array length: {}", lander.terrain.len());
 
     entities.push(lander);
