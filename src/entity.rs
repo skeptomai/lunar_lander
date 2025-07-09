@@ -163,9 +163,9 @@ impl<'a> Entity<'a> {
     }
 }
 
-pub async fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
+pub fn add_lander_entity<'a>(entities: &mut Vec<Entity<'a>>) {
     // Load textures first to get actual lander dimensions
-    let (lander_texture, thrust_texture) = load_lander_textures().await;
+    let (lander_texture, thrust_texture) = load_lander_textures();
 
     // Get the actual size of the texture
     let lander_texture_size = lander_texture.size().mul_add(

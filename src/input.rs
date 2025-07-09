@@ -1,17 +1,42 @@
 use macroquad::prelude::*;
+use macroquad::logging::info;
 use rusty_audio::Audio;
 
 use crate::audio::{update_audio, shutdown_audio};
 use crate::entity::{Entity, Collision};
+use crate::session::SessionManager;
 
 const ROTATION_INCREMENT: f32 = 3.0;
 const FULL_CIRCLE_DEGREES: f32 = 360.0;
 
-pub fn handle_input(lander: &mut Entity, audio: &mut Audio) {
+pub fn handle_input(lander: &mut Entity, audio: &mut Audio, session_manager: &mut SessionManager) {
     // Handle input
     if is_key_released(KeyCode::R) {
-        reset_lander(lander);
-        update_audio(audio);
+        if session_manager.session.session_complete {
+            // Session is complete - start a new session
+            session_manager.reset_session();
+            reset_lander(lander);
+            update_audio(audio);
+            info!("Starting new game session (3 attempts)");
+        } else if lander.dead && session_manager.can_start_next_attempt() {
+            // Current attempt failed but session continues - start next attempt
+            reset_lander(lander);
+            update_audio(audio);
+            info!("Starting attempt {}/{}", 
+                  (session_manager.session.current_attempt + 1).min(session_manager.session.max_attempts), 
+                  session_manager.session.max_attempts);
+        } else if lander.dead {
+            // Session complete but not processed yet
+            session_manager.reset_session();
+            reset_lander(lander);
+            update_audio(audio);
+            info!("Starting new game session (3 attempts)");
+        } else {
+            // Currently playing - restart current attempt
+            reset_lander(lander);
+            update_audio(audio);
+            info!("Restarting current attempt");
+        }
     }
     if is_key_down(KeyCode::Escape) {
         shutdown_audio(audio);

@@ -332,6 +332,108 @@ pub fn check_collision(entity: &Entity) -> CollisionType {
     }
 }
 
+/// Enhanced collision check that returns both collision type and landing zone information
+/// for session management and scoring purposes.
+///
+/// # Returns
+///
+/// A tuple containing:
+/// * `CollisionType` - The type of collision detected
+/// * `Option<LandingZoneDifficulty>` - Landing zone difficulty if successful landing
+pub fn check_collision_with_zone_info(entity: &Entity) -> (CollisionType, Option<LandingZoneDifficulty>) {
+    // We need to extract zone info during collision detection to avoid duplication
+    // This is a modified version of check_collision that also returns zone info
+    
+    let lander_x = entity.transform.position.x;
+    let lander_y = entity.transform.position.y;
+    let lander_width = entity.transform.size.x;
+    let lander_height = entity.transform.size.y;
+    let lander_bottom_y = lander_y;
+    
+    // Convert to terrain array indices
+    let terrain_start_idx = (lander_x as i32).max(0) as usize;
+    let terrain_end_idx = ((lander_x + lander_width) as i32).min((entity.terrain.len() - 1) as i32) as usize;
+    
+    if terrain_start_idx >= entity.terrain.len() || terrain_end_idx >= entity.terrain.len() {
+        return (CollisionType::None, None);
+    }
+    
+    // Check for collisions and collect terrain indices
+    let mut leg_collision = false;
+    let mut body_collision = false;
+    let mut collision_terrain_indices = Vec::new();
+    
+    // Define collision zones
+    let leg_zone_top = lander_bottom_y + (lander_height * LEG_HEIGHT_RATIO);
+    let leg_width = lander_width * LEG_WIDTH_RATIO;
+    let left_leg_start = lander_x;
+    let left_leg_end = lander_x + leg_width;
+    let right_leg_start = lander_x + lander_width - leg_width;
+    let right_leg_end = lander_x + lander_width;
+    let body_left = left_leg_end;
+    let body_right = right_leg_start;
+    
+    for i in terrain_start_idx..=terrain_end_idx {
+        let terrain_y = entity.terrain[i] as f32;
+        let terrain_x = i as f32;
+        
+        // Check leg collisions
+        if lander_bottom_y <= terrain_y + COLLISION_MARGIN {
+            if (terrain_x >= left_leg_start && terrain_x <= left_leg_end)
+                || (terrain_x >= right_leg_start && terrain_x <= right_leg_end)
+            {
+                leg_collision = true;
+                collision_terrain_indices.push(i);
+            }
+        }
+        
+        // Check body collision
+        if leg_zone_top <= terrain_y + COLLISION_MARGIN {
+            if terrain_x >= body_left && terrain_x <= body_right {
+                body_collision = true;
+                collision_terrain_indices.push(i);
+            }
+        }
+    }
+    
+    // Determine collision type and zone difficulty
+    if leg_collision {
+        // Check if landing on any landing zone
+        let screen_width = macroquad::window::screen_width();
+        let terrain_points_per_pixel = 1000.0 / (screen_width * 2.0);
+        let lander_width_terrain_points = (entity.transform.size.x * terrain_points_per_pixel) as usize;
+        
+        let landing_zone_info = get_landing_zone_info(&collision_terrain_indices, &entity.landing_zones, lander_width_terrain_points);
+        
+        if let Some((difficulty, _, _)) = landing_zone_info {
+            // On landing zone - check velocity and angle for success vs crash
+            if let Some(physics) = &entity.physics {
+                let landing_velocity = physics.velocity.length();
+                let lander_angle = entity.transform.rotation;
+                let normalized_angle = lander_angle.rem_euclid(360.0);
+                let angle_deviation = normalized_angle.min(360.0 - normalized_angle);
+                
+                let velocity_ok = landing_velocity <= MAX_LANDING_VELOCITY;
+                let angle_ok = angle_deviation <= MAX_LANDING_ANGLE_DEGREES;
+                
+                if velocity_ok && angle_ok {
+                    (CollisionType::LandingSuccess, Some(difficulty))
+                } else {
+                    (CollisionType::LegCollision, Some(difficulty))
+                }
+            } else {
+                (CollisionType::LegCollision, Some(difficulty))
+            }
+        } else {
+            (CollisionType::LegCollision, None)
+        }
+    } else if body_collision {
+        (CollisionType::BodyCollision, None)
+    } else {
+        (CollisionType::None, None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

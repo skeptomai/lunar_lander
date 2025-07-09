@@ -196,7 +196,7 @@ pub fn generate_terrain_with_multiple_landing_zones(
     }
 
     // Generate terrain using Perlin noise with integrated flat spots
-    let mut zone_heights = Vec::new();
+    let mut zone_heights = vec![0.0; landing_zones.len()];
     
     for i in 0..num_points {
         let height = {
@@ -227,9 +227,6 @@ pub fn generate_terrain_with_multiple_landing_zones(
                     height /= max_amplitude; // Normalize
                     
                     // Store this height for the entire flat section
-                    if zone_heights.len() <= zone_idx {
-                        zone_heights.resize(zone_idx + 1, 0.0);
-                    }
                     zone_heights[zone_idx] = height;
                     height
                 } else {

@@ -12,6 +12,7 @@ use macroquad_text::Fonts;
 
 use crate::entity::Entity;
 use crate::physics::Physics;
+use crate::session::{GameSession, AttemptResult};
 use crate::surface::LandingZoneDifficulty;
 
 /// Main rendering function that draws all game entities and UI elements.
@@ -25,7 +26,8 @@ use crate::surface::LandingZoneDifficulty;
 ///
 /// * `entities` - Vector of all game entities to render
 /// * `camera` - Camera configuration for coordinate transformations
-pub fn render(entities: &Vec<Entity>, camera: &Camera2D) {
+/// * `session` - Game session state for status display
+pub fn render(entities: &Vec<Entity>, camera: &Camera2D, session: &GameSession) {
     for entity in entities {
         if let Some(phys) = &entity.physics {
             render_debug_info(entity, phys, camera);
@@ -40,10 +42,13 @@ pub fn render(entities: &Vec<Entity>, camera: &Camera2D) {
 
             if entity.dead {
                 set_default_camera();
-                draw_alert_box(entity);
+                draw_alert_box(entity, session);
             } else {
                 draw_text(&entity);
             }
+            
+            // Always render session status
+            render_session_status(entity, session);
         }
     }
 }
@@ -387,32 +392,73 @@ pub fn draw_text(entity: &Entity) {
 /// # Arguments
 ///
 /// * `entity` - Entity containing mission status
-pub fn draw_alert_box(entity: &Entity) {
+/// * `session` - Game session for attempt context
+pub fn draw_alert_box(entity: &Entity, session: &GameSession) {
     let fonts = &entity.screen_fonts;
 
     let screen_width = screen_width();
     let screen_height = screen_height();
     
-    const ALERT_BOX_WIDTH: f32 = 300.0;
-    const ALERT_BOX_HEIGHT: f32 = 100.0;
+    const ALERT_BOX_WIDTH: f32 = 320.0;
+    const ALERT_BOX_HEIGHT: f32 = 130.0;
     
     let box_x = (screen_width - ALERT_BOX_WIDTH) / 2.0;
     let box_y = (screen_height - ALERT_BOX_HEIGHT) / 2.5;
 
     draw_rectangle(box_x, box_y, ALERT_BOX_WIDTH, ALERT_BOX_HEIGHT, LIGHTGRAY);
 
+    // Main result text - centered
+    let mut current_y = box_y + 25.0;
+    
     if entity.mission_success {
-        fonts.draw_text("Mission Success!", box_x + 30.0, box_y + 20.0, 30.0, GREEN);
-        fonts.draw_text("Landing Complete!", box_x + 70.0, box_y + 50.0, 20.0, WHITE);
+        let success_text = "Attempt Success!";
+        let success_text_width = measure_text(success_text, None, 28, 1.0).width;
+        let success_text_x = box_x + (ALERT_BOX_WIDTH - success_text_width) / 2.0;
+        fonts.draw_text(success_text, success_text_x, current_y, 28.0, GREEN);
+        current_y += 30.0;
+        
+        if let Some(attempt) = session.attempts.get(session.current_attempt.saturating_sub(1)) {
+            let score_text = format!("Score: {:.0}", attempt.score);
+            let score_text_width = measure_text(&score_text, None, 18, 1.0).width;
+            let score_text_x = box_x + (ALERT_BOX_WIDTH - score_text_width) / 2.0;
+            fonts.draw_text(&score_text, score_text_x, current_y, 18.0, WHITE);
+            current_y += 25.0;
+        }
     } else {
-        fonts.draw_text("Mission Failed!", box_x + 40.0, box_y + 20.0, 30.0, RED);
+        let failed_text = "Attempt Failed!";
+        let failed_text_width = measure_text(failed_text, None, 28, 1.0).width;
+        let failed_text_x = box_x + (ALERT_BOX_WIDTH - failed_text_width) / 2.0;
+        fonts.draw_text(failed_text, failed_text_x, current_y, 28.0, RED);
+        current_y += 35.0;
     }
+    
+    // Show session progress context - centered
+    let progress_text = if session.session_complete {
+        format!("Session Complete! Total: {}", session.total_score as i32)
+    } else {
+        format!("Attempt {} of {}", session.current_attempt, session.max_attempts)
+    };
+    let progress_text_width = measure_text(&progress_text, None, 16, 1.0).width;
+    let progress_text_x = box_x + (ALERT_BOX_WIDTH - progress_text_width) / 2.0;
+    fonts.draw_text(&progress_text, progress_text_x, current_y, 16.0, WHITE);
+    current_y += 25.0;
 
+    // Show appropriate restart message based on session state - centered
+    let restart_text = if session.session_complete {
+        // All 3 attempts completed - offer new session
+        "Press R for New Session"
+    } else {
+        // Still have attempts remaining - offer next attempt
+        "Press R for Next Attempt"
+    };
+    
+    let restart_text_width = measure_text(restart_text, None, 16, 1.0).width;
+    let restart_text_x = box_x + (ALERT_BOX_WIDTH - restart_text_width) / 2.0;
     fonts.draw_text(
-        "Press R to Restart",
-        box_x + 60.0,
-        box_y + 70.0,
-        20.0,
+        restart_text,
+        restart_text_x,
+        current_y,
+        16.0,
         WHITE,
     );
 }
@@ -604,5 +650,121 @@ pub fn configure_camera() -> Camera2D {
         zoom: vec2(2.0 / screen_width, -2.0 / screen_height), // Invert y-axis
         target: vec2(screen_width / 2.0, screen_height / 2.0),
         ..Default::default()
+    }
+}
+
+/// Renders the game session status bar showing attempt indicators and scoring information.
+///
+/// The status bar displays:
+/// - Visual indicators for each of the 3 attempts (gray = future, yellow = current, green = success, red = failure)
+/// - Current attempt number and total attempts
+/// - Total session score
+/// - Performance summary when session is complete
+///
+/// # Arguments
+///
+/// * `entity` - Entity containing fonts for text rendering
+/// * `session` - Game session state to display
+pub fn render_session_status(entity: &Entity, session: &GameSession) {
+    set_default_camera();
+    let fonts = &entity.screen_fonts;
+    
+    // Session status bar position - centered horizontally
+    let screen_width = screen_width();
+    let icon_size = 16.0 * 0.7; // Reduce size by 30%
+    let icon_spacing = 40.0;
+    let total_width = (session.max_attempts as f32 - 1.0) * icon_spacing;
+    let start_x = (screen_width - total_width) / 2.0;
+    let start_y = 20.0; // Move up to avoid overlap with mission stats
+    
+    // Draw attempt indicators using circles with lander symbols
+    for (i, attempt) in session.attempts.iter().enumerate() {
+        let x = start_x + (i as f32 * icon_spacing);
+        let y = start_y;
+        
+        // Determine color and appearance based on attempt status
+        let (circle_color, text_color, is_current) = match attempt.result {
+            AttemptResult::Success => (GREEN, GREEN, false),
+            AttemptResult::Failure => (RED, RED, false),
+            AttemptResult::InProgress => {
+                if i == session.current_attempt {
+                    (YELLOW, YELLOW, true) // Current attempt
+                } else {
+                    (GRAY, GRAY, false)   // Future attempt
+                }
+            }
+        };
+        
+        // Draw background circle
+        draw_circle(x, y, icon_size, circle_color);
+        
+        // No text needed - the colored circles are clear enough indicators
+        
+        // Highlight current attempt with a ring
+        if is_current {
+            draw_circle_lines(x, y, icon_size + 2.0, 2.0, WHITE);
+        }
+        
+        // Show score below successful attempts - positioned better to avoid overlap
+        if attempt.result == AttemptResult::Success && attempt.score > 0.0 {
+            let score_text = format!("{:.0}", attempt.score);
+            // Center the score text under the icon
+            let score_text_width = measure_text(&score_text, None, 12, 1.0).width;
+            let score_text_x = x - score_text_width / 2.0;
+            fonts.draw_text(&score_text, score_text_x, y + 35.0, 12.0, WHITE);
+        }
+    }
+    
+    // Draw session information - centered below the icons with more space
+    let info_y = start_y + 60.0; // Position below the icons and scores
+    
+    // Current attempt indicator - centered
+    let attempt_text = format!("ATTEMPT: {}/{}", 
+        (session.current_attempt + 1).min(session.max_attempts), 
+        session.max_attempts);
+    let attempt_text_width = measure_text(&attempt_text, None, 16, 1.0).width;
+    let attempt_text_x = (screen_width - attempt_text_width) / 2.0;
+    fonts.draw_text(&attempt_text, attempt_text_x, info_y, 16.0, WHITE);
+    
+    // Total score - centered below attempt indicator
+    let score_text = format!("TOTAL SCORE: {:.0}", session.total_score);
+    let score_text_width = measure_text(&score_text, None, 16, 1.0).width;
+    let score_text_x = (screen_width - score_text_width) / 2.0;
+    fonts.draw_text(&score_text, score_text_x, info_y + 20.0, 16.0, WHITE);
+    
+    // Session statistics - centered
+    if session.session_complete {
+        // Performance rating - centered
+        let rating_text = format!("RATING: {}", session.performance_rating());
+        let rating_text_width = measure_text(&rating_text, None, 14, 1.0).width;
+        let rating_text_x = (screen_width - rating_text_width) / 2.0;
+        fonts.draw_text(&rating_text, rating_text_x, info_y + 40.0, 14.0, GOLD);
+        
+        // Success/failure count - centered
+        let results_text = format!("SUCCESSES: {} / FAILURES: {}", 
+            session.success_count(), 
+            session.failure_count());
+        let results_text_width = measure_text(&results_text, None, 12, 1.0).width;
+        let results_text_x = (screen_width - results_text_width) / 2.0;
+        fonts.draw_text(&results_text, results_text_x, info_y + 60.0, 12.0, WHITE);
+        
+        // Average fuel efficiency for successful attempts - centered
+        if session.success_count() > 0 {
+            let fuel_text = format!("AVG FUEL: {:.1}%", session.average_fuel_efficiency());
+            let fuel_text_width = measure_text(&fuel_text, None, 12, 1.0).width;
+            let fuel_text_x = (screen_width - fuel_text_width) / 2.0;
+            fonts.draw_text(&fuel_text, fuel_text_x, info_y + 80.0, 12.0, WHITE);
+        }
+    } else {
+        // Show current attempt fuel during active play - centered
+        if !entity.dead {
+            if let Some(rocket) = &entity.rocket_physics {
+                let fuel_text = format!("FUEL: {:.1}%", rocket.fuel_percentage());
+                let fuel_text_width = measure_text(&fuel_text, None, 14, 1.0).width;
+                let fuel_text_x = (screen_width - fuel_text_width) / 2.0;
+                fonts.draw_text(&fuel_text, fuel_text_x, info_y + 40.0, 14.0, 
+                    if rocket.fuel_percentage() < 25.0 { RED } else { WHITE });
+            }
+        }
     }
 }

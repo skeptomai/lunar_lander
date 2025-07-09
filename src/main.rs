@@ -13,15 +13,17 @@ mod entity;
 mod input;
 mod physics;
 mod rendering;
+mod session;
 mod surface;
 mod utils;
 
 use audio::{load_audio, shutdown_audio};
-use collision::{check_collision, CollisionType};
+use collision::{check_collision, check_collision_with_zone_info, CollisionType};
 use entity::{add_lander_entity, Entity};
 use input::{handle_input, stop_lander};
 use physics::{Physics, RocketEngine};
 use rendering::{configure_camera, render};
+use session::{SessionManager, AttemptResult};
 
 const MILLIS_DELAY: u64 = 40;
 // acceleration due to gravity on earth
@@ -36,9 +38,11 @@ async fn main() {
     rand::srand(macroquad::miniquad::date::now() as _);
     // load sounds
     let mut audio = load_audio();
+    // create session manager
+    let mut session_manager = SessionManager::new();
     // create lander
     let mut entities = Vec::new();
-    add_lander_entity(&mut entities).await;
+    add_lander_entity(&mut entities);
 
     // main loop forever
     loop {
@@ -47,10 +51,10 @@ async fn main() {
         let lander: &mut Entity = entities.first_mut().unwrap();
 
         // Handle input
-        handle_input(lander, &mut audio);
+        handle_input(lander, &mut audio, &mut session_manager);
 
         if !lander.dead {
-            handle_collision(lander, &mut audio);
+            handle_collision(lander, &mut audio, &mut session_manager);
             check_fuel(lander);
 
             // Update systems
@@ -60,7 +64,7 @@ async fn main() {
         // Render systems
         // Create camera once at start of main loop
         let camera = configure_camera();
-        render(&entities, &camera);
+        render(&entities, &camera, &session_manager.session);
 
         // Pause for the next frame
         sleep(std::time::Duration::from_millis(MILLIS_DELAY));
@@ -109,15 +113,30 @@ fn update_physics(entities: &mut Vec<Entity>) {
     }
 }
 
-fn handle_collision(lander: &mut Entity, audio: &mut Audio) {
-    // Check for collision with new collision zones
-    match check_collision(lander) {
+fn handle_collision(lander: &mut Entity, audio: &mut Audio, session_manager: &mut SessionManager) {
+    // Check for collision with enhanced zone information
+    let (collision_type, zone_difficulty) = check_collision_with_zone_info(lander);
+    
+    match collision_type {
         CollisionType::BodyCollision => {
             debug!("Body Collision - Mission Failed!");
             stop_lander(lander);
             shutdown_audio(audio);
             lander.sound = false;
             lander.dead = true;
+            
+            // Record failed attempt in session
+            let fuel_remaining = if let Some(rocket) = &lander.rocket_physics {
+                rocket.fuel_percentage()
+            } else {
+                0.0
+            };
+            session_manager.complete_attempt(
+                AttemptResult::Failure,
+                fuel_remaining,
+                None,
+                lander.time_elapsed
+            );
         }
         CollisionType::LegCollision => {
             debug!("Hard Landing - Mission Failed!");
@@ -125,6 +144,19 @@ fn handle_collision(lander: &mut Entity, audio: &mut Audio) {
             shutdown_audio(audio);
             lander.sound = false;
             lander.dead = true;
+            
+            // Record failed attempt in session
+            let fuel_remaining = if let Some(rocket) = &lander.rocket_physics {
+                rocket.fuel_percentage()
+            } else {
+                0.0
+            };
+            session_manager.complete_attempt(
+                AttemptResult::Failure,
+                fuel_remaining,
+                zone_difficulty, // Might have been on a zone but failed requirements
+                lander.time_elapsed
+            );
         }
         CollisionType::LandingSuccess => {
             debug!("Successful Landing - Mission Complete!");
@@ -133,6 +165,19 @@ fn handle_collision(lander: &mut Entity, audio: &mut Audio) {
             lander.sound = false;
             lander.dead = true;
             lander.mission_success = true;
+            
+            // Record successful attempt in session
+            let fuel_remaining = if let Some(rocket) = &lander.rocket_physics {
+                rocket.fuel_percentage()
+            } else {
+                0.0
+            };
+            session_manager.complete_attempt(
+                AttemptResult::Success,
+                fuel_remaining,
+                zone_difficulty,
+                lander.time_elapsed
+            );
         }
         CollisionType::None => {
             // No collision, continue normal gameplay
